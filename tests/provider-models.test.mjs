@@ -35,6 +35,7 @@ test('模型发现仅需预设和密钥，保存多模型并按任务路由', as
   t.after(async () => { await close(server); await rm(work, { recursive: true, force: true }); });
   let cookie = '';
   async function api(path, method = 'GET', body) {
+    if (path === '/api/providers' && method === 'PUT' && body.version === undefined) body = { ...body, version: (await api('/api/providers')).body.version };
     const response = await fetch(`${base}${path}`, { method, headers: { Cookie: cookie, ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
     if (response.headers.get('set-cookie')) cookie = response.headers.get('set-cookie').split(';')[0];
     return { status: response.status, body: await response.json() };
@@ -231,6 +232,7 @@ test('旧数据库升级保留密钥、单模型和三任务绑定', async t => 
   legacy.close();
   const store = openStore(work);
   const settings = getProviders(store.db, 'legacy-user');
+  assert.equal(settings.version, 1);
   assert.deepEqual(settings.providers[0].models, [{ id: 'old/model', name: 'old/model', vision: null }]);
   assert.equal(settings.providers[0].presetId, 'custom');
   assert.equal(settings.providers[0].protocol, 'openai');

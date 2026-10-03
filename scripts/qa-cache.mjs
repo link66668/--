@@ -96,7 +96,7 @@ try {
   await page.reload();
   await page.waitForFunction(() => globalThis.qaAppVersion === 'updated' && globalThis.qaDependencyVersion === 'updated');
   assert((await page.evaluate(() => caches.keys())).includes('qa-unrelated-cache'), 'Upgrade should preserve unrelated application caches');
-  await page.locator('#auth-form').waitFor();
+  await page.locator('#auth-form').waitFor({ state: 'attached' });
 
   progress('stop isolated origin and reload cached shell');
   await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
@@ -106,7 +106,7 @@ try {
   await page.reload();
   progress('wait for offline app modules');
   await page.waitForFunction(() => globalThis.qaAppVersion === 'updated' && globalThis.qaDependencyVersion === 'updated');
-  await page.locator('#auth-form').waitFor();
+  await page.locator('#auth-form').waitFor({ state: 'attached' });
   progress('fetch an uncached versioned module offline');
   const offlineModule = await bounded(() => page.evaluate(async () => {
     const response = await fetch('/provider-ui.js?v=offline-never-requested');
@@ -114,8 +114,22 @@ try {
   }), stage);
   assert.match(offlineModule.type, /javascript/);
   assert.match(offlineModule.body, /qaDependencyVersion = "updated"/);
+  const groupAssets = await bounded(() => page.evaluate(async () => {
+    const results = await Promise.all(['/community-groups.js?v=offline-never-requested', '/community-groups.css?v=offline-never-requested', '/community-images.js?v=offline-never-requested'].map(async path => {
+      const response = await fetch(path);
+      return { ok: response.ok, type: response.headers.get('content-type'), body: await response.text() };
+    }));
+    return results;
+  }), 'offline group assets');
+  assert(groupAssets.every(asset => asset.ok));
+  assert.match(groupAssets[0].type, /javascript/);
+  assert.match(groupAssets[0].body, /export class CommunityGroups/);
+  assert.match(groupAssets[1].type, /css/);
+  assert.match(groupAssets[1].body, /\.cm-groups-layout/);
+  assert.match(groupAssets[2].type, /javascript/);
+  assert.match(groupAssets[2].body, /export class CommunityImageComposer/);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, browser: 'Microsoft Edge', checks: ['fresh legacy HTTP cache', `v2 to ${currentCache} worker upgrade`, 'updated entry and dependency modules', 'unrelated cache preserved', 'origin confirmed unreachable', 'offline shell', 'offline versioned module'] }));
+  console.log(JSON.stringify({ passed: true, browser: 'Microsoft Edge', checks: ['fresh legacy HTTP cache', `v2 to ${currentCache} worker upgrade`, 'updated entry and dependency modules', 'unrelated cache preserved', 'origin confirmed unreachable', 'offline shell', 'offline versioned module', 'offline versioned group module and styles', 'offline versioned community image composer'] }));
 } catch (error) {
   console.error(JSON.stringify({ stage, errors, failures, requests: requests.slice(-60), state: await bounded(() => page.evaluate(async () => ({ app: globalThis.qaAppVersion, dependency: globalThis.qaDependencyVersion, caches: await caches.keys() })), 'failure diagnostics', 3000).catch(() => null) }));
   throw error;

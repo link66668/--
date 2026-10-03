@@ -6,6 +6,7 @@ import {holidayYear,holidayInfo,installHolidayYear} from './holidays.js';
 import {createLibraryTemplate, libraryMigration, libraryPlan} from './plan-library.js?v=2';
 import {beijingDate,validTrainingCompletion,achievementWall} from './achievements.js?v=5';
 import {renderAchievementWall,renderAchievementDetails} from './achievement-view.js?v=4';
+import {CommunityController, clearCommunityDrafts, clearCommunityLocalData} from './community.js?v=25';
 import {api, streamChat, RecordStore, setApiUser, createId} from './store.js?v=10';
 import {renderMarkdown,renderMarkdownInto} from './chat-markdown.js?v=10';
 import {AttachmentManager, filesFromTransfer} from './chat-attachments.js?v=9';
@@ -44,6 +45,7 @@ const paths = {
  food:'M6 3v6a3 3 0 0 0 6 0V3M9 3v18M19 3v18M19 3c-4 4-4 9 0 9',
  dumbbell:'m6 5 13 13M3 8l5-5M2 5l3-3M16 21l5-5M19 22l3-3M5 10l5-5M14 19l5-5',
  grid:'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
+ community:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 3a4 4 0 0 1 0 8M22 21v-2a4 4 0 0 0-3-3.87M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0',
  settings:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 2v2M12 20v2M2 12h2M20 12h2M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2',
  plus:'M12 5v14M5 12h14', arrow:'M7 17 17 7M7 7h10v10', send:'M12 19V5M5 12l7-7 7 7',
  clip:'m21 11-8.5 8.5a6 6 0 0 1-8.5-8.5l9-9a4 4 0 0 1 5.7 5.7l-9 9a2 2 0 0 1-2.8-2.8l8.5-8.5',
@@ -58,7 +60,7 @@ const paths = {
 const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name] || paths.spark}"/></svg>`;
 const button = (text,action,extra='',type='') => `<button type="button" class="button ${type}" data-action="${action}" ${extra}>${text}</button>`;
 const empty = (text,name='leaf') => `<div class="empty">${icon(name)}${text}</div>`;
-const state = {page:'chat',setting:'profile',date:today(),conversation:null,user:null,store:null,providers:[],tasks:{},taskModels:{},providerDraft:null,files:[],busy:false,filter:'',muscle:'',equipment:'',knowledgeTab:'nutrition',mealDraft:null,authMode:'register'};
+const state = {page:'chat',setting:'home',date:today(),conversation:null,user:null,store:null,providers:[],tasks:{},taskModels:{},providerDraft:null,files:[],busy:false,filter:'',muscle:'',equipment:'',knowledgeTab:'nutrition',mealDraft:null,authMode:'register'};
 try { state.sidebarCollapsed = localStorage.getItem('fitness:sidebar-collapsed') === 'true'; } catch { state.sidebarCollapsed = false; }
 const knowledgeDrafts = {};
 const modelViewer = new ModelViewer();
@@ -66,6 +68,25 @@ let motionView = null;
 let motionContainer = null;
 function closeMotionView() { motionView?.destroy(); motionView=null; motionContainer=null; }
 let landingCleanup = null;
+let communityController = null;
+let navigationVersion = 0;
+let providersRequest = 0;
+state.providersVersion = null;
+state.providersConflict = false;
+const personalSections = [['home','我的主页'],['profile','健康档案'],['achievements','成就墙'],['ai','AI 服务'],['review','阶段复盘'],['data','数据与同步']];
+function personalRoute(hash=location.hash) {
+  const [path,query='']=String(hash).split('?'),params=new URLSearchParams(query);
+  return {active:path==='#settings',section:personalSections.some(([id])=>id===params.get('section'))?params.get('section'):'home',tab:['collections','drafts'].includes(params.get('tab'))?params.get('tab'):'published'};
+}
+const personalHash = section => section==='home'?'#settings':'#settings?section='+encodeURIComponent(section);
+function canonicalProfileHash(hash) {
+  const [path,query='']=String(hash).split('?'),params=new URLSearchParams(query),parts=path.split('/');
+  if(path==='#community/mine'||parts[0]==='#community'&&parts[1]==='user'&&String(parts[2])===String(state.user?.id)&&params.get('preview')!=='public'){
+    const tab=['collections','drafts'].includes(params.get('tab'))?params.get('tab'):'published';
+    return tab==='published'?'#settings':'#settings?tab='+tab;
+  }
+  return hash;
+}
 const chatDrafts = new Map();
 const chatScroll = new Map();
 let chatRun = null;
@@ -113,7 +134,8 @@ async function boot() {
   }
 }
 async function enter(user,offline=false) {
-  if(state.user?.id!==user.id){modelViewer.destroy();for(const key of Object.keys(knowledgeDrafts))delete knowledgeDrafts[key];await chatUploads.clearAll({removeUploaded:true});chatDrafts.clear();chatScroll.clear();state.conversation=null;state.chatScene='';state.files=[];state.weekCelebration=null;state.celebratedWeeks=new Set();state.achievementPage=0;state.achievementCategory='all';state.librarySelected=null;state.libraryDate=null;state.libraryEditing=null;}
+  if(state.user?.id!==user.id){closeMotionView();await communityController?.destroy();communityController=null;modelViewer.destroy();for(const key of Object.keys(knowledgeDrafts))delete knowledgeDrafts[key];await chatUploads.clearAll({removeUploaded:true});chatDrafts.clear();chatScroll.clear();state.conversation=null;state.chatScene='';state.files=[];state.weekCelebration=null;state.celebratedWeeks=new Set();state.achievementPage=0;state.achievementCategory='all';state.librarySelected=null;state.libraryDate=null;state.libraryEditing=null;}
+  state.providersVersion=null;state.providersConflict=false;providersRequest++;
   setApiUser(user.id);
   state.user=user; state.store=await new RecordStore(user).open(); localStorage.setItem('fitness:last-user',JSON.stringify(user));
   let derivedPending=false;for(const [id,change] of state.store.pending){if(['achievement','achievement-summary'].includes(change.kind)){state.store.pending.delete(id);state.store.records.delete(id);state.store.conflicts=state.store.conflicts.filter(item=>item.id!==id);derivedPending=true;}}
@@ -123,9 +145,54 @@ async function enter(user,offline=false) {
   store.addEventListener('change',()=>{if(state.store!==store)return;updateSync();renderSidebarHistory();refreshScheduleViews();});
   if(!offline) { await state.store.sync().catch(e=>toast(e.message,true)); await loadProviders(); }
   await ensurePlanLibrary();
+  const communityReturn=readCommunityReturn();
+  if(communityReturn)history.replaceState(null,'',communityReturn);
+  const initialHash=canonicalProfileHash(location.hash);
+  if(initialHash!==location.hash)history.replaceState(null,'',initialHash);
+  const personal=personalRoute(initialHash);
+  if(personal.active){state.page='settings';state.setting=personal.section;}
+  else state.page=initialHash.startsWith('#community')?'community':(['chat','nutrition','training','library','motion'].includes(initialHash.slice(1))?initialHash.slice(1):state.page);
   render(); if(!profile()) showProfile(true);
 }
-async function loadProviders() { try { const result=await api('/providers'); state.providers=result.providers; state.tasks=result.tasks;state.taskModels=result.taskModels||{}; } catch {} }
+function applyProviders(result) {
+  state.providers=result.providers;state.tasks=result.tasks;state.taskModels=result.taskModels||{};
+  state.providersVersion=result.version;state.providersConflict=false;
+}
+async function loadProviders() {
+  const user=state.user,store=state.store,request=++providersRequest;if(!user)return false;
+  try {
+    const result=await api('/providers',{headers:{'X-Fitness-User':user.id}});
+    if(state.user!==user||state.store!==store||request!==providersRequest)return false;
+    if(state.providersVersion===null||result.version>=state.providersVersion)applyProviders(result);
+    return true;
+  } catch {return false;}
+}
+function providerConflictMarkup() {
+  return `<div class="error-box"><p>AI 服务配置已更新，当前修改尚未保存。加载最新配置后，请重新修改。</p>${button('加载最新配置','reload-providers')}<small style="display:block;margin-top:8px">加载后会清除当前未保存的配置修改。</small></div>`;
+}
+async function saveProviderConfiguration(payload,version,form) {
+  const user=state.user,store=state.store;if(!user)return false;
+  try {
+    if(!Number.isSafeInteger(version)||version<0)throw Object.assign(new Error('AI 服务配置尚未加载，请加载最新配置后再保存。'),{status:409});
+    const result=await api('/providers',{method:'PUT',headers:{'X-Fitness-User':user.id},body:{...payload,version}});
+    if(state.user!==user||state.store!==store)return false;
+    providersRequest++;
+    if(state.providersVersion===null||result.version>=state.providersVersion)applyProviders(result);
+    return true;
+  } catch(error) {
+    if(state.user!==user||state.store!==store)return false;
+    if(error.status===409&&error.message.includes('AI 服务配置')) {
+      state.providersConflict=true;
+      const feedback=form?.isConnected&&form.id==='provider-form'?$('#provider-feedback'):$('#provider-settings-feedback');
+      if(feedback)feedback.innerHTML=providerConflictMarkup();
+      if(form?.isConnected&&form.id!=='provider-form'&&form.closest('#modal')) {
+        let notice=form.querySelector('[data-provider-conflict]');
+        if(!notice){notice=document.createElement('div');notice.dataset.providerConflict='';form.prepend(notice);}notice.innerHTML=providerConflictMarkup();
+      }
+    }
+    throw error;
+  }
+}
 // Decorative movement rings use CSS only, with reduced-motion support.
 function energyVisual() {
  return `<div class="energy-visual" aria-hidden="true"><div class="energy-orbit orbit-one"></div><div class="energy-orbit orbit-two"></div><div class="energy-orbit orbit-three"></div><div class="energy-core">${icon('spark')}</div><span class="energy-satellite satellite-lime">${icon('dumbbell')}</span><span class="energy-satellite satellite-coral">${icon('food')}</span><span class="energy-satellite satellite-white">${icon('body')}</span><span class="energy-caption">FIND YOUR FLOW</span></div>`;
@@ -139,6 +206,8 @@ function setWorkspaceTheme(active) {
   document.querySelector('meta[name="theme-color"]').content=active?'#e4e6fa':'#263dff';
 }
 function renderAuth() {
+  closeMotionView();
+  rememberCommunityReturn();
   setWorkspaceTheme(false);
   const panel=$('[data-auth-panel]');
   if(panel){
@@ -159,8 +228,8 @@ function render() {
   setWorkspaceTheme(true);
   if(landingCleanup){landingCleanup();landingCleanup=null;if(['#auth-entry','#auth-register'].includes(location.hash))history.replaceState(null,'',location.pathname+location.search);window.scrollTo(0,0);}
   captureChatDraft();
-  const labels={chat:'AI 对话',nutrition:'今日饮食',training:'训练计划',library:'知识大全',motion:'动作评估',settings:'个人中心'};
-  $('#app').innerHTML=`<div class="layout${state.sidebarCollapsed?' sidebar-collapsed':''}"><aside class="sidebar" id="sidebar"><div class="sidebar-header"><button type="button" class="sidebar-toggle icon-button" data-action="toggle-sidebar" aria-controls="sidebar" aria-expanded="${!state.sidebarCollapsed}" aria-label="${state.sidebarCollapsed?'展开侧边栏':'收起侧边栏'}" title="${state.sidebarCollapsed?'展开侧边栏':'收起侧边栏'}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM9 4v16m6-12-4 4 4 4"/></svg><span class="toggle-brand brand-symbol" aria-hidden="true">循</span></button><button class="mobile-close icon-button" data-action="menu" aria-label="关闭导航">${icon('close')}</button><a class="brand" aria-label="循序 · AI 对话" title="循序 · AI 对话" href="#chat" data-action="nav" data-page="chat"><span class="brand-symbol">循</span><div>循序<small>AI FITNESS COMPANION</small></div></a></div><nav class="nav" aria-label="主导航">${[['chat','chat','AI 对话'],['nutrition','food','今日饮食'],['training','dumbbell','训练计划'],['library','grid','知识大全'],['motion','body','动作评估'],['settings','settings','个人中心']].map(([id,i,label])=>`<button data-action="nav" data-page="${id}" aria-label="${label}" title="${label}" class="${state.page===id?'active':''}" ${state.page===id?'aria-current="page"':''}>${icon(i)}<span>${label}</span>${state.page===id?'<i class="nav-dot"></i>':''}</button>`).join('')}</nav><section class="history"><div class="section-label">最近对话<button class="link-button" data-action="new-chat" aria-label="新建对话">＋</button></div><div id="history-list"></div></section><div class="side-note"><span class="side-note-kicker">今日寄语 ${icon("spark")}</span><strong data-daily-quote-title></strong><span data-daily-quote-line="0"></span><br><span data-daily-quote-line="1"></span><div class="side-note-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div><div class="account"><span class="avatar">${esc(state.user.name?.slice(0,1)||'循')}</span><div class="account-info"><strong>${esc(state.user.name||'我的空间')}</strong><small>${profile()?goalLabel(profile().goal)+'进行中':'开启健康生活'}</small></div><button class="icon-button" data-action="logout" aria-label="退出登录">${icon('logout')}</button></div></aside><main class="main"><header class="topbar"><div class="row"><button class="icon-button mobile-menu" data-action="menu" aria-label="打开导航">${icon('menu')}</button><div class="breadcrumb">我的健康空间<span>/</span><strong>${labels[state.page]}</strong></div></div><div class="top-right"><span class="date-label muted">${dateLabel(today())}</span><button id="sync-status" class="status" data-action="sync">已同步</button></div></header><div id="page" class="content"></div></main></div>`;
+  const labels={chat:'AI 对话',nutrition:'今日饮食',training:'训练计划',library:'知识大全',motion:'动作评估',community:'社区',settings:'个人中心'};
+  $('#app').innerHTML=`<div class="layout${state.sidebarCollapsed?' sidebar-collapsed':''}${state.page==='community'?' community-active':''}"><aside class="sidebar" id="sidebar"><div class="sidebar-header"><button type="button" class="sidebar-toggle icon-button" data-action="toggle-sidebar" aria-controls="sidebar" aria-expanded="${!state.sidebarCollapsed}" aria-label="${state.sidebarCollapsed?'展开侧边栏':'收起侧边栏'}" title="${state.sidebarCollapsed?'展开侧边栏':'收起侧边栏'}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM9 4v16m6-12-4 4 4 4"/></svg><span class="toggle-brand brand-symbol" aria-hidden="true">循</span></button><button class="mobile-close icon-button" data-action="menu" aria-label="关闭导航">${icon('close')}</button><a class="brand" aria-label="循序 · AI 对话" title="循序 · AI 对话" href="#chat" data-action="nav" data-page="chat"><span class="brand-symbol">循</span><div>循序<small>AI FITNESS COMPANION</small></div></a></div><nav class="nav" aria-label="主导航">${[['chat','chat','AI 对话'],['nutrition','food','今日饮食'],['training','dumbbell','训练计划'],['library','grid','知识大全'],['motion','body','动作评估'],['community','community','社区'],['settings','settings','个人中心']].map(([id,i,label])=>`<button data-action="nav" data-page="${id}" aria-label="${label}" title="${label}" class="${state.page===id?'active':''}" ${state.page===id?'aria-current="page"':''}>${icon(i)}<span>${label}</span>${state.page===id?'<i class="nav-dot"></i>':''}</button>`).join('')}</nav><section class="history"><div class="section-label">最近对话<button class="link-button" data-action="new-chat" aria-label="新建对话">＋</button></div><div id="history-list"></div></section><div class="side-note"><span class="side-note-kicker">今日寄语 ${icon("spark")}</span><strong data-daily-quote-title></strong><span data-daily-quote-line="0"></span><br><span data-daily-quote-line="1"></span><div class="side-note-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div><div class="account"><span class="avatar">${esc(state.user.name?.slice(0,1)||'循')}</span><div class="account-info"><strong>${esc(state.user.name||'我的空间')}</strong><small>${profile()?goalLabel(profile().goal)+'进行中':'开启健康生活'}</small></div><button class="icon-button" data-action="logout" aria-label="退出登录">${icon('logout')}</button></div></aside><main class="main"><header class="topbar"><div class="row"><button class="icon-button mobile-menu" data-action="menu" aria-label="打开导航">${icon('menu')}</button><div class="breadcrumb">我的健康空间<span>/</span><strong>${labels[state.page]}</strong></div></div><div class="top-right"><span class="date-label muted">${dateLabel(today())}</span><button id="sync-status" class="status" data-action="sync">已同步</button></div></header><div id="page" class="content"></div></main></div>`;
   updateSidebarQuote(); renderSidebarHistory(); updateSync(); renderPage();
 }
 function updateSidebarQuote() {
@@ -183,6 +252,12 @@ function renderSidebarHistory() {
 }
 function renderPage() {
  if(state.page!=='motion')closeMotionView();
+  if(state.page==='community'){
+    if(!profile()){$('#page').innerHTML='<div class="empty" role="status">完成基本资料后，即可进入循序社区。</div>';return;}
+    communityController ||= new CommunityController({getUser:()=>state.user,api,toast,navigate:communityNavigate});
+    communityController.mount($('#page')).catch(error=>toast(error.message,true));
+    return;
+  }
  ensureRecurringSchedule().catch(error=>toast(error.message,true));
   ({chat:renderChat,nutrition:renderNutrition,training:renderTraining,library:renderLibrary,motion:renderMotion,settings:renderSettings}[state.page])();
 }
@@ -1332,8 +1407,16 @@ function showExercise(id) {
 }
 
 function renderSettings() {
- $('#page').innerHTML=title('你的身体，你的节奏。','记录进步，管理资料与偏好。')+`<nav class="settings-nav" aria-label="个人中心栏目">${[['profile','个人资料'],['achievements','成就墙'],['ai','AI 服务'],['review','阶段复盘'],['data','数据与同步']].map(([id,label])=>`<button data-action="settings-tab" data-tab="${id}" class="${state.setting===id?'active':''}">${label}</button>`).join('')}</nav><div id="settings-content"></div>`;
- ({profile:renderProfile,achievements:renderAchievements,ai:renderAISettings,review:renderReview,data:renderData}[state.setting])();
+ if(!personalSections.some(([id])=>id===state.setting))state.setting='home';
+ $('#page').classList.add('personal-center-content');
+ $('.layout').classList.add('personal-center-active');
+ const actions=state.setting==='home'?`<div class="personal-head-actions"><a class="button personal-preview" href="#community/user/${encodeURIComponent(state.user.id)}?preview=public">他人视角 ${icon('arrow')}</a><a class="button primary" href="#community/publish">${icon('plus')} 发布笔记</a></div>`:'';
+ $('#page').innerHTML=title('个人中心','管理你的主页、健康档案与偏好。',actions)+`<nav class="settings-nav" aria-label="个人中心栏目">${personalSections.map(([id,label])=>`<button data-action="settings-tab" data-tab="${id}" class="${state.setting===id?'active':''}" ${state.setting===id?'aria-current="page"':''}>${label}</button>`).join('')}</nav><div id="settings-content"></div>`;
+ if(state.setting==='home'){
+   $('#settings-content').innerHTML='<div id="personal-community"></div>';
+   communityController ||= new CommunityController({getUser:()=>state.user,api,toast,navigate:communityNavigate});
+   communityController.mountPersonal($('#personal-community'),personalRoute().active?location.hash:'#settings').catch(error=>toast(error.message,true));
+ }else ({profile:renderProfile,achievements:renderAchievements,ai:renderAISettings,review:renderReview,data:renderData}[state.setting])();
 }
 function renderAchievements() {
  const all=[...state.store.records.values()],pageSize=matchMedia('(max-width:700px)').matches?2:4;
@@ -1365,11 +1448,11 @@ function providerLogo(preset) { return `<span class="provider-logo" style="--pro
 function modelCapability(model) { return model.vision===true?'<span class="badge">支持图片</span>':model.vision===false?'<span class="badge neutral">文本</span>':'<span class="badge neutral">图片能力待确认</span>'; }
 function renderAISettings() {
  const taskOptions=task=>'<option value="">选择供应商与模型</option>'+state.providers.filter(p=>enabledModels(p).length).map(p=>`<optgroup label="${esc(p.name)}">${options(enabledModels(p).map(m=>[JSON.stringify({providerId:p.id,modelId:m.id}),`${p.name} · ${m.name||m.id}${m.vision===true?' · 支持图片':''}`]),taskSelection(task,state.providers,state.tasks,state.taskModels))}</optgroup>`).join('');
- $('#settings-content').innerHTML=`<div class="provider-intro"><div><div class="eyebrow">CONNECT YOUR AI</div><h2>选择服务，填入密钥，就可以开始。</h2><p>地址已为你准备好。获取模型后，勾选常用模型，再分配给不同任务。</p></div><span class="badge">${providerPresets.filter(p=>p.id!=='custom').length} 种供应商预设</span></div><div class="provider-settings-grid"><section class="card"><div class="card-head"><h2>我的供应商</h2>${button('+ 添加供应商','provider','','small')}</div>${state.providers.length?state.providers.map(p=>{const preset=presetFor(p.presetId);return `<article class="provider-card"><div class="row">${providerLogo(preset)}<div class="grow"><strong>${esc(p.name)}</strong><small>${enabledModels(p).length} 个已启用模型</small></div><span class="badge ${p.hasKey?'':'neutral'}">${p.hasKey?'已配置':'无密钥'}</span></div><div class="provider-model-tags">${enabledModels(p).slice(0,4).map(m=>`<span title="${esc(m.id)}">${esc(m.name||m.id)}</span>`).join('')}${enabledModels(p).length>4?`<small>+${enabledModels(p).length-4}</small>`:''}</div><div class="row wrap">${button('管理模型','provider',`data-id="${esc(p.id)}"`,'small')}${button('测试连接','test-provider',`data-id="${esc(p.id)}" ${p.model?'':'disabled'}`,'small')}${button('删除','delete-provider',`data-id="${esc(p.id)}"`,'small')}</div></article>`;}).join(''):empty('还没有连接 AI 服务<br>从下面选择你使用的供应商。','spark')}<div class="divider"></div><div class="card-head"><h3>添加常用服务</h3><small>自动填写接口地址</small></div><div class="provider-presets">${providerPresets.map(p=>`<button class="preset-tile" data-action="provider-preset" data-preset="${p.id}">${providerLogo(p)}<span>${esc(p.name)}</span></button>`).join('')}</div><p class="provider-footnote">密钥在服务端加密保存，个人导出与浏览器缓存不包含密钥。</p></section><section class="card task-card"><div class="card-head"><h2>任务使用的模型</h2>${icon('settings')}</div><p class="description">同一份密钥下的多个模型，可以分别承担不同任务。</p><form id="tasks-form">${[['chat','日常对话','连续追问、知识问答与阶段分析','chat'],['meal','餐食识别','请选择支持图片输入的模型','image'],['planning','规划建议','训练安排、食谱与阶段规划','leaf'],['motion','动作点评','视觉模型可识别器械与动作细节；文本模型解释检测证据','body']].map(([id,label,desc,i])=>`<div class="task-model-field"><label for="task-${id}">${icon(i)} ${label}</label><select id="task-${id}" name="${id}">${taskOptions(id)}</select><small>${desc}</small></div>`).join('')}<div class="form-footer"><button class="button primary">保存任务模型</button></div></form><div class="notice" style="margin-top:24px">有些服务的模型列表不提供图片能力信息；这类模型会标注“待确认”，可结合供应商说明选择。</div></section></div>`;
+ $('#settings-content').innerHTML=`<div id="provider-settings-feedback" role="status" aria-live="polite">${state.providersConflict?providerConflictMarkup():''}</div><div class="provider-intro"><div><div class="eyebrow">CONNECT YOUR AI</div><h2>选择服务，填入密钥，就可以开始。</h2><p>地址已为你准备好。获取模型后，勾选常用模型，再分配给不同任务。</p></div><span class="badge">${providerPresets.filter(p=>p.id!=='custom').length} 种供应商预设</span></div><div class="provider-settings-grid"><section class="card"><div class="card-head"><h2>我的供应商</h2>${button('+ 添加供应商','provider','','small')}</div>${state.providers.length?state.providers.map(p=>{const preset=presetFor(p.presetId);return `<article class="provider-card"><div class="row">${providerLogo(preset)}<div class="grow"><strong>${esc(p.name)}</strong><small>${enabledModels(p).length} 个已启用模型</small></div><span class="badge ${p.hasKey?'':'neutral'}">${p.hasKey?'已配置':'无密钥'}</span></div><div class="provider-model-tags">${enabledModels(p).slice(0,4).map(m=>`<span title="${esc(m.id)}">${esc(m.name||m.id)}</span>`).join('')}${enabledModels(p).length>4?`<small>+${enabledModels(p).length-4}</small>`:''}</div><div class="row wrap">${button('管理模型','provider',`data-id="${esc(p.id)}"`,'small')}${button('测试连接','test-provider',`data-id="${esc(p.id)}" ${p.model?'':'disabled'}`,'small')}${button('删除','delete-provider',`data-id="${esc(p.id)}"`,'small')}</div></article>`;}).join(''):empty('还没有连接 AI 服务<br>从下面选择你使用的供应商。','spark')}<div class="divider"></div><div class="card-head"><h3>添加常用服务</h3><small>自动填写接口地址</small></div><div class="provider-presets">${providerPresets.map(p=>`<button class="preset-tile" data-action="provider-preset" data-preset="${p.id}">${providerLogo(p)}<span>${esc(p.name)}</span></button>`).join('')}</div><p class="provider-footnote">密钥在服务端加密保存，个人导出与浏览器缓存不包含密钥。</p></section><section class="card task-card"><div class="card-head"><h2>任务使用的模型</h2>${icon('settings')}</div><p class="description">同一份密钥下的多个模型，可以分别承担不同任务。</p><form id="tasks-form" data-version="${state.providersVersion??''}">${[['chat','日常对话','连续追问、知识问答与阶段分析','chat'],['meal','餐食识别','请选择支持图片输入的模型','image'],['planning','规划建议','训练安排、食谱与阶段规划','leaf'],['motion','动作点评','视觉模型可识别器械与动作细节；文本模型解释检测证据','body']].map(([id,label,desc,i])=>`<div class="task-model-field"><label for="task-${id}">${icon(i)} ${label}</label><select id="task-${id}" name="${id}">${taskOptions(id)}</select><small>${desc}</small></div>`).join('')}<div class="form-footer"><button class="button primary">保存任务模型</button></div></form><div class="notice" style="margin-top:24px">有些服务的模型列表不提供图片能力信息；这类模型会标注“待确认”，可结合供应商说明选择。</div></section></div>`;
 }
 function providerEditor(id,presetId='deepseek') {
  const existing=state.providers.find(x=>x.id===id),preset=presetFor(existing?.presetId||presetId);
- state.providerDraft={id:existing?.id||uid(),presetId:preset.id,protocol:existing?.protocol||preset.protocol,name:existing?.name||preset.name,baseUrl:existing?.baseUrl||preset.baseUrl,apiKey:'',hasKey:existing?.hasKey||false,models:structuredClone(existing?enabledModels(existing):[]),model:existing?.model||'',availableModels:structuredClone(existing?enabledModels(existing):[]),search:'',fetched:false,fetching:false,existing:!!existing};
+ state.providerDraft={version:state.providersVersion,id:existing?.id||uid(),presetId:preset.id,protocol:existing?.protocol||preset.protocol,name:existing?.name||preset.name,baseUrl:existing?.baseUrl||preset.baseUrl,apiKey:'',hasKey:existing?.hasKey||false,models:structuredClone(existing?enabledModels(existing):[]),model:existing?.model||'',availableModels:structuredClone(existing?enabledModels(existing):[]),search:'',fetched:false,fetching:false,existing:!!existing};
  renderProviderEditor();
 }
 function renderProviderEditor() {
@@ -1419,8 +1502,9 @@ async function saveProvider() {
  if(!d.apiKey&&(!d.hasKey||d.clearKey)&&presetFor(d.presetId).requiresKey)throw new Error('请填写此供应商的 API Key。');
  const providers=state.providers.filter(p=>p.id!==d.id).map(p=>({...p}));providers.push(providerPayload(d));
  const selection=reconcileTasks(providers,state.tasks,state.taskModels,state.providers.some(p=>enabledModels(p).length)?undefined:d.id);
- await api('/providers',{method:'PUT',body:{providers,...selection}});
- $('#provider-form')?.reset();d.apiKey='';state.providerDraft=null;await loadProviders();closeModal();renderAISettings();toast('供应商与模型已保存');
+ const saved=await saveProviderConfiguration({providers,...selection},d.version,$('#provider-form'));
+ if(!saved||state.providerDraft!==d||!$('#provider-form'))return;
+ $('#provider-form').reset();d.apiKey='';state.providerDraft=null;closeModal();renderAISettings();toast('供应商与模型已保存');
 }
 function renderReview() {
  const phases=records('phase').map(r=>r.data).sort((a,b)=>a.date.localeCompare(b.date));const first=phases[0],last=phases.at(-1),delta=first&&last?Number((last.weight-first.weight).toFixed(1)):0;
@@ -1480,7 +1564,72 @@ async function exportData() {
  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`循序健身-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);toast(data.offline?'已导出本机记录；图片需联网完整导出':'个人数据已导出');
 }
 function confirmDialog(title,message,action,id='') {modal(title,`<p class="description">${esc(message)}</p><div class="form-footer">${button('取消','close-modal')}${button('确认删除',action,`data-id="${esc(id)}"`,'danger')}</div>`);}
-async function navigate(page) {state.page=page;if(page==='settings'&&state.setting==='ai')await loadProviders();render();window.scrollTo(0,0);}
+function rememberCommunityReturn() {
+  if(!location.hash.startsWith('#community')&&!personalRoute().active)return;
+  try{sessionStorage.setItem('fitness:community-return',location.hash);}catch{}
+}
+function readCommunityReturn() {
+  try{
+    const value=sessionStorage.getItem('fitness:community-return');
+    sessionStorage.removeItem('fitness:community-return');
+    return value?.startsWith('#community')||personalRoute(value).active?value:null;
+  }catch{return null;}
+}
+async function communityNavigate(hash) {
+  if(hash==='#auth-entry'){
+    rememberCommunityReturn();
+    await logout();
+    location.hash='#auth-entry';
+    return;
+  }
+  hash=canonicalProfileHash(hash);
+  if(!String(hash).startsWith('#community')&&!personalRoute(hash).active)return;
+  if(location.hash===hash){
+    if(personalRoute(hash).active)await navigate('settings',{fromHash:true});
+    else if(state.page==='community'&&communityController?.isMounted($('#page')))await communityController.handleRoute(hash);
+    else await navigate('community',{fromHash:true});
+  }else location.hash=hash;
+}
+async function navigate(page,{fromHash=false}={}) {
+  if(!['chat','nutrition','training','library','motion','community','settings'].includes(page))return;
+  const version=++navigationVersion;
+  if(page==='community'&&!fromHash&&!location.hash.startsWith('#community'))history.pushState(null,'','#community');
+  if(page==='community'){
+    const canonical=canonicalProfileHash(location.hash);
+    if(canonical!==location.hash){history.replaceState(null,'',canonical);page='settings';fromHash=true;}
+  }
+  if(page==='settings'&&fromHash)state.setting=personalRoute().section;
+  if(page!=='community'&&!fromHash){const hash=page==='settings'?personalHash(state.setting):'#'+page;if(location.hash!==hash)history.pushState(null,'',hash);}
+  if(page==='community'&&state.page==='community'&&communityController?.isMounted($('#page'))){
+    $('#sidebar')?.classList.remove('open');
+    await communityController.handleRoute(location.hash);
+    return;
+  }
+  if(page==='settings'&&state.page==='settings'&&state.setting==='home'&&communityController?.isMounted($('#personal-community'))){
+    $('#sidebar')?.classList.remove('open');
+    await communityController.handlePersonalRoute(location.hash);
+    return;
+  }
+  if(communityController?.isMounted())await communityController.unmount();
+  if(version!==navigationVersion)return;
+  state.page=page;
+  if(page==='settings'&&state.setting==='ai')await loadProviders();
+  if(version!==navigationVersion)return;
+  render();window.scrollTo(0,0);
+}
+window.addEventListener('hashchange',()=>{
+  if(!state.user){rememberCommunityReturn();return;}
+  const hash=location.hash;
+  if(hash.startsWith('#community')){
+    navigate('community',{fromHash:true}).catch(error=>toast(error.message,true));
+  }else if(personalRoute(hash).active){
+    navigate('settings',{fromHash:true}).catch(error=>toast(error.message,true));
+  }else{
+    const page=hash.slice(1);
+    if(['chat','nutrition','training','library','motion'].includes(page)&&page!==state.page)
+      navigate(page,{fromHash:true}).catch(error=>toast(error.message,true));
+  }
+});
 
 // 真人封面加载失败（文件缺失、离线、清单过期）时移除图片并撤掉遮罩，露出底下的矢量图示。
 // closest 必须在 remove 之前取：图片一旦脱离文档，closest 只会返回 null。
@@ -1503,7 +1652,7 @@ document.addEventListener('click',async event=>{
    else {$('#auth-entry').scrollIntoView({behavior:'instant'});$('#landing-auth-heading').focus({preventScroll:true});}
    break;
  }
- case 'nav':await navigate(target.dataset.page);break;
+ case 'nav':if(target.dataset.page==='settings')state.setting='home';await navigate(target.dataset.page);break;
  case 'motion-open':modelViewer.close();closeModal();await navigate('motion');break;
  case 'toggle-sidebar': {
    state.sidebarCollapsed = !state.sidebarCollapsed;
@@ -1612,15 +1761,26 @@ document.addEventListener('click',async event=>{
  case 'achievement-filter':state.achievementCategory=target.dataset.category;state.achievementPage=0;renderAchievements();break;
  case 'achievement-page':state.achievementPage=Number(target.dataset.page);renderAchievements();break;
  case 'achievement-detail':showAchievement(id);break;
- case 'settings-tab':state.setting=target.dataset.tab;if(state.setting==='ai')await loadProviders();renderSettings();break;
+ case 'settings-tab':if(personalSections.some(([section])=>section===target.dataset.tab)){state.setting=target.dataset.tab;await navigate('settings');}break;
  case 'provider':providerEditor(id);break;
  case 'provider-preset':providerEditor(null,target.dataset.preset);break;
  case 'fetch-models':await fetchProviderModels();break;
+ case 'reload-providers':{
+   const user=state.user,store=state.store;target.disabled=true;
+   try {
+     const loaded=await loadProviders();if(state.user!==user||state.store!==store||!target.isConnected)break;
+     if(!loaded)throw new Error('暂时无法加载最新配置，请稍后重试。');
+     if(target.closest('#modal'))closeModal();
+     if($('#settings-content')&&state.setting==='ai')renderAISettings();
+     toast('已加载最新配置，请重新修改后保存');
+   } finally {target.disabled=false;}
+   break;
+ }
  case 'select-visible-models':{const d=state.providerDraft,q=d.search.trim().toLowerCase();const selected=new Map(d.models.map(m=>[m.id,m]));for(const m of d.availableModels)if((m.id+' '+m.name).toLowerCase().includes(q))selected.set(m.id,m);d.models=[...selected.values()];renderProviderModels();updateProviderSelection();break;}
  case 'manual-model':{const d=state.providerDraft,value=$('#provider-manual-model').value.trim();if(!value)throw new Error('请填写模型 ID。');if(!d.availableModels.some(m=>m.id===value))d.availableModels.push({id:value,name:value,vision:null});if(!d.models.some(m=>m.id===value))d.models.push(d.availableModels.find(m=>m.id===value));d.search='';$('#provider-model-search').value='';$('#provider-manual-model').value='';renderProviderModels();updateProviderSelection();break;}
  case 'test-provider':target.disabled=true;try{const r=await api('/providers/test',{method:'POST',body:{id}});toast(r.message||'连接成功');}finally{target.disabled=false;}break;
- case 'delete-provider':confirmDialog('删除 AI 服务','使用此服务的任务将需要重新选择模型。','confirm-delete-provider',id);break;
- case 'confirm-delete-provider':{const providers=state.providers.filter(p=>p.id!==id);const selection=reconcileTasks(providers,state.tasks,state.taskModels);await api('/providers',{method:'PUT',body:{providers,...selection}});await loadProviders();closeModal();renderAISettings();break;}
+ case 'delete-provider':state.providerDeleteVersion=state.providersVersion;confirmDialog('删除 AI 服务','使用此服务的任务将需要重新选择模型。','confirm-delete-provider',id);break;
+ case 'confirm-delete-provider':{const providers=state.providers.filter(p=>p.id!==id);const selection=reconcileTasks(providers,state.tasks,state.taskModels),scope=$('#modal .modal-content');const saved=await saveProviderConfiguration({providers,...selection},state.providerDeleteVersion,scope);if(saved&&target.isConnected){closeModal();if($('#settings-content')&&state.setting==='ai')renderAISettings();}break;}
  case 'ai-review':state.conversation=null;closeModal();await navigate('chat');await sendChat('请结合我的阶段体重、饮食和实际训练记录复盘。指出记录不足和趋势的不确定性，并建议下一阶段可调整的参数。不要改写我的固定训练计划。');break;
  case 'recipe':recipeTool();break;
  case 'recipe-ai':{if(!state.recipe)return;target.disabled=true;try{const response=await api('/ai',{method:'POST',body:{task:'planning',messages:[{role:'user',content:'请结合我的训练时间、偏好与忌口，对以下食谱草案给出可操作的调整说明和单餐替换，避免忽略任何饮食限制。不要自动记账。'+JSON.stringify({recipe:state.recipe,preferences:state.store.get('preferences')})}],context:aiContext()}});$('#recipe-result').insertAdjacentHTML('beforeend',`<div class="notice" style="margin-top:18px;white-space:pre-wrap">${esc(response.content)}</div>`);}finally{target.disabled=false;}break;}
@@ -1657,11 +1817,11 @@ document.addEventListener('submit',async event=>{
  case 'training-log':{const record=assertTaskCurrent(state.trainingLog),s=record.data,day=taskDay(record);await saveTrainingProgress(record,{...s,daySnapshot:structuredClone(day),completed:true,notes:values.notes,actual:day.exercises.map((e,i)=>({exerciseId:e.exerciseId,sets:Number(values['sets-'+i]),reps:values['reps-'+i],weight:Number(values['weight-'+i])})),completedAt:s.completedAt||new Date().toISOString()});renderTraining();showCalendarTask(record.id);toast('训练已记录');break;}
  case 'strength-form':{const r=estimate1RM(Number(values.weight),Number(values.reps));$('#strength-result').innerHTML=`<div class="divider"></div><div class="grid-2"><div class="stat"><small>Epley 参考</small><strong>${r.epley}<em>kg</em></strong></div><div class="stat"><small>Brzycki 参考</small><strong>${r.brzycki}<em>kg</em></strong></div></div><p class="description" style="margin-top:18px">${esc(r.note)}</p>`;break;}
  case 'provider-form':await saveProvider();break;
- case 'tasks-form':{const tasks={},taskModels={};for(const task of ['chat','meal','planning','motion']){const selected=values[task]?JSON.parse(values[task]):{};tasks[task]=selected.providerId||'';taskModels[task]=selected.modelId||'';}await api('/providers',{method:'PUT',body:{providers:state.providers,tasks,taskModels}});await loadProviders();toast('任务模型已保存');break;}
+ case 'tasks-form':{const tasks={},taskModels={};for(const task of ['chat','meal','planning','motion']){const selected=values[task]?JSON.parse(values[task]):{};tasks[task]=selected.providerId||'';taskModels[task]=selected.modelId||'';}const version=form.dataset.version===''?null:Number(form.dataset.version);const saved=await saveProviderConfiguration({providers:state.providers,tasks,taskModels},version,form);if(saved&&form.isConnected){form.dataset.version=String(state.providersVersion);toast('任务模型已保存');}break;}
  case 'recipe-form':{const pref={preferences:values.preferences,restrictions:values.restrictions,trainingTime:values.trainingTime};const result=suggestRecipe({...values,days:Number(values.days),profile:profile()});await state.store.put('preferences','preferences',pref);state.recipe=result;$('#recipe-result').innerHTML=recipeResult(result);break;}
  case 'food-swap-form':{const r=substituteFood(values.from,Number(values.grams),values.to,values.basis),from=foods.find(f=>f.id===values.from),to=foods.find(f=>f.id===values.to);$('#swap-result').innerHTML=`<div class="divider"></div><h3>${esc(from.name)} ${values.grams}g → ${esc(to.name)} ${r.grams}g</h3><table class="history-table"><thead><tr><th>营养</th><th>替换前</th><th>替换后</th><th>变化</th></tr></thead><tbody>${[['kcal','能量 kcal'],['protein','蛋白质 g'],['carbs','碳水 g'],['fat','脂肪 g']].map(([k,n])=>`<tr><td>${n}</td><td>${r.before[k]}</td><td>${r.after[k]}</td><td>${r.delta[k]>0?'+':''}${r.delta[k]}</td></tr>`).join('')}</tbody></table><p class="description">${esc(r.note)}</p><small>${esc(from.source)}<br>${esc(to.source)}</small>`;break;}
  case 'cooked-form':{const r=convertFoodWeight(Number(values.grams),Number(values.raw),Number(values.cooked));$('#cooked-result').innerHTML=`<div class="notice">对应熟重约 <strong>${r.grams} g</strong><br>${esc(r.note)}</div>`;break;}
- case 'delete-account-form':await stopChat();await api('/account',{method:'DELETE',body:{password:values.password}});modelViewer.destroy();await chatUploads.clearAll();await state.store.clear();await state.store.close?.();localStorage.removeItem('fitness:last-user');setApiUser(null);state.user=null;state.store=null;state.providers=[];state.tasks={};state.taskModels={};state.providerDraft=null;state.files=[];state.conversation=null;chatDrafts.clear();chatScroll.clear();closeModal();renderAuth();toast('账号与个人数据已删除');break;
+ case 'delete-account-form':await deleteAccount(values.password);break;
  }
  }catch(error){const errorBox=form.id==='auth-form'?$('#auth-error'):form.id==='profile-form'?$('#profile-error'):form.id==='calendar-task-form'?$('#calendar-task-error'):form.id==='training-content-form'?$('#training-content-error'):form.id==='plan-library-form'?$('#plan-library-error'):null;if(errorBox)errorBox.innerHTML=`<div class="error-box" style="margin:12px 0">${esc(error.message)}</div>`;else toast(error.message,true);}
  finally {if(submit)submit.disabled=false;if(form.id==='chat-form')updateChatControls();}
@@ -1734,12 +1894,40 @@ document.addEventListener('input',event=>{
  if(event.target.id==='provider-model-search'&&state.providerDraft){state.providerDraft.search=event.target.value;renderProviderModels();}
  if(event.target.id==='exercise-search'){const start=event.target.selectionStart;state.filter=event.target.value;renderLibrary();$('#exercise-search').focus();$('#exercise-search').setSelectionRange(start,start);}
 });
+async function deleteAccount(password) {
+  const user=state.user,store=state.store,community=communityController;if(!user||!store)return;
+  const current=()=>state.user===user&&state.store===store;
+  await stopChat();if(!current())return;
+  try {await api('/account',{method:'DELETE',headers:{'X-Fitness-User':user.id},body:{password}});}
+  catch(error){if(!current())return;throw error;}
+  if(current())closeMotionView();
+  // Cleanup always belongs to the account that sent DELETE, including after logout.
+  if(community){await community.clearAccountData();await community.destroy();if(communityController===community)communityController=null;}
+  else await clearCommunityDrafts(user.id);
+  clearCommunityLocalData(user.id);
+  await Promise.all([...chatUploads.owners.keys()].filter(owner=>owner.startsWith(user.id+':')).map(owner=>chatUploads.clear(owner)));
+  const deletedStore=store.closed?await new RecordStore(user).open():store;
+  try {await deletedStore.clear();}finally {await deletedStore.close();}
+  // A newer login can occur during any of the cleanup awaits above.
+  if(!current())return;
+  modelViewer.destroy();localStorage.removeItem('fitness:last-user');setApiUser(null);
+  state.user=null;state.store=null;state.providers=[];state.providersVersion=null;state.providersConflict=false;providersRequest++;
+  state.tasks={};state.taskModels={};state.providerDraft=null;state.files=[];state.conversation=null;state.authMode='login';
+  chatDrafts.clear();chatScroll.clear();closeModal();renderAuth();toast('账号、个人记录与社区数据已删除');
+}
 async function logout() {
- closeMotionView();
- modelViewer.destroy();
- await chatUploads.clearAll({removeUploaded:true});await stopChat();
- if(state.store?.status!=='expired')try{await api('/auth/logout',{method:'POST',body:{}});}catch(error){if(![401,409].includes(error.status)){if(state.page==='motion')renderMotion();throw error;}}
- await state.store?.close?.();localStorage.removeItem('fitness:last-user');setApiUser(null);state.user=null;state.store=null;state.providers=[];state.tasks={};state.taskModels={};state.providerDraft=null;state.files=[];state.conversation=null;state.authMode='login';chatDrafts.clear();chatScroll.clear();renderAuth();
+  const user=state.user,store=state.store,community=communityController;if(!user)return;
+  const current=()=>state.user===user&&state.store===store;
+  closeMotionView();
+  rememberCommunityReturn();
+  await community?.destroy();if(communityController===community)communityController=null;
+  if(!current())return;
+  modelViewer.destroy();
+  await chatUploads.clearAll({removeUploaded:true});if(!current())return;
+  await stopChat();if(!current())return;
+  if(store?.status!=='expired')try{await api('/auth/logout',{method:'POST',headers:{'X-Fitness-User':user.id},body:{}});}catch(error){if(!current())return;if(![401,409].includes(error.status)){if(state.page==='motion')renderMotion();throw error;}}
+  await store?.close?.();if(!current())return;
+  localStorage.removeItem('fitness:last-user');setApiUser(null);state.user=null;state.store=null;state.providers=[];state.providersVersion=null;state.providersConflict=false;providersRequest++;state.tasks={};state.taskModels={};state.providerDraft=null;state.files=[];state.conversation=null;state.authMode='login';chatDrafts.clear();chatScroll.clear();renderAuth();
 }
 $('#modal').addEventListener('cancel',()=>{if($('#provider-form'))clearProviderDraft();});
 window.addEventListener('online',()=>state.store?.sync().then(()=>{toast('已恢复网络，记录已同步');}).catch(e=>toast(e.message,true)));

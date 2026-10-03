@@ -543,6 +543,18 @@
 @media(prefers-reduced-motion:reduce){.busy-defaults-chevron{transition:none}}
 
 .markdown-block:first-child>:first-child{margin-top:0}.markdown-block:last-child>:last-child{margin-bottom:0}
+.layout.personal-center-active .content.personal-center-content{max-width:none;min-height:calc(100dvh - 83px);background:#fff;padding:28px 32px 56px}
+.personal-center-content>.page-title{margin-bottom:22px;align-items:flex-start}
+.personal-center-content>.page-title h1{font-size:24px;letter-spacing:0}
+.personal-center-content>.page-title p{font-size:12px}
+.personal-center-content .personal-preview{min-height:44px;border-radius:999px;color:#347da6;flex-shrink:0}
+.personal-center-content .personal-head-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.personal-center-content .personal-head-actions>.button{min-height:44px;border-radius:999px}
+.personal-center-content>.settings-nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;padding-bottom:15px;border-bottom:1px solid #eeeef3}
+.personal-center-content>.settings-nav button{min-height:44px;padding:10px 16px;border-radius:999px;font-size:13px;white-space:nowrap}
+.personal-center-content>.settings-nav button.active{background:#eaf4fc;color:#347da6;box-shadow:none}
+.personal-center-content #personal-community{min-width:0}
+@media(max-width:760px){.layout.personal-center-active .content.personal-center-content{padding:22px 16px 64px}.personal-center-content>.page-title{flex-wrap:wrap;gap:12px;margin-bottom:18px}.personal-center-content>.page-title h1{font-size:23px}.personal-center-content .personal-preview{font-size:11px;padding:9px 13px}.personal-center-content>.settings-nav{gap:5px;padding-bottom:12px}.personal-center-content>.settings-nav button{font-size:12px;padding:9px 12px}}
 
 /* Collected achievements share the current blue/lilac product theme. */
 .achievement-wall{min-height:0;background:#fff;border-color:var(--line)}

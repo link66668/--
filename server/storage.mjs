@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCommunityStore } from './community-storage.mjs';
 
 export function openStore(dataDir) {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -17,7 +18,7 @@ export function openStore(dataDir) {
     CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS records (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id TEXT NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL, version INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, PRIMARY KEY(user_id, id));
     CREATE TABLE IF NOT EXISTS providers (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id TEXT NOT NULL, name TEXT NOT NULL, base_url TEXT NOT NULL, model TEXT NOT NULL, api_key TEXT NOT NULL DEFAULT '', PRIMARY KEY(user_id, id));
-    CREATE TABLE IF NOT EXISTS preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, tasks TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, tasks TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS attachments (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, type TEXT NOT NULL, data BLOB NOT NULL, size INTEGER NOT NULL, created_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS session_user ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS attachment_user ON attachments(user_id);`);
@@ -47,7 +48,15 @@ export function openStore(dataDir) {
     const updateModels = db.prepare('UPDATE providers SET models = ? WHERE user_id = ? AND id = ?');
     for (const row of db.prepare('SELECT user_id,id,model FROM providers').all()) updateModels.run(JSON.stringify(row.model ? [{ id: row.model, name: row.model, vision: null }] : []), row.user_id, row.id);
   }
-  if (!db.prepare('PRAGMA table_info(preferences)').all().some(column => column.name === 'task_models')) db.exec("ALTER TABLE preferences ADD COLUMN task_models TEXT NOT NULL DEFAULT '{}'");
+  const preferenceColumns = new Set(db.prepare('PRAGMA table_info(preferences)').all().map(column => column.name));
+  if (!preferenceColumns.has('task_models')) db.exec("ALTER TABLE preferences ADD COLUMN task_models TEXT NOT NULL DEFAULT '{}'");
+  // Existing settings start at version one; new accounts remain at zero until
+  // their first save. Keep the revision after clearing all providers as well.
+  if (!preferenceColumns.has('version')) db.exec('ALTER TABLE preferences ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+  db.exec(`INSERT INTO preferences(user_id,tasks,task_models,version)
+    SELECT DISTINCT user_id,'{"chat":"","meal":"","planning":""}','{}',1 FROM providers
+    WHERE user_id NOT IN (SELECT user_id FROM preferences)`);
+  createCommunityStore(db);
   return {
     db,
     encrypt(value) {
@@ -84,12 +93,12 @@ export function getRecordChanges(db,userId,cursor) {
 
 export function getProviders(db, userId) {
   const providers = db.prepare('SELECT * FROM providers WHERE user_id = ? ORDER BY rowid').all(userId).map(providerFromRow);
-  const row = db.prepare('SELECT tasks,task_models FROM preferences WHERE user_id = ?').get(userId);
+  const row = db.prepare('SELECT tasks,task_models,version FROM preferences WHERE user_id = ?').get(userId);
   const tasks = row ? JSON.parse(row.tasks) : { chat: '', meal: '', planning: '' };
   const storedModels = row ? JSON.parse(row.task_models) : {};
   const taskNames = ['chat', 'meal', 'planning', ...(Object.hasOwn(tasks, 'motion') || Object.hasOwn(storedModels, 'motion') ? ['motion'] : [])];
   const taskModels = Object.fromEntries(taskNames.map(task => [task, storedModels[task] ?? providers.find(provider => provider.id === tasks[task])?.model ?? '']));
-  return { providers, tasks, taskModels };
+  return { providers, tasks, taskModels, version: row?.version ?? 0 };
 }
 
 export function providerFromRow(row) {

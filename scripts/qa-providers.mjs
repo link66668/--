@@ -91,7 +91,7 @@ const noStoredKeys = async () => {
     const local = Object.fromEntries(Object.entries(localStorage));
     const session = Object.fromEntries(Object.entries(sessionStorage));
     const accounts = await new Promise((resolve, reject) => {
-      const request = indexedDB.open('fitness-assistant-v1', 1);
+      const request = indexedDB.open('fitness-assistant-v1');
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         const db = request.result;
@@ -205,7 +205,7 @@ try {
   await screenshot('desktop-provider-settings');
 
   step = 'reload retains configuration and mobile at 390 pixels stays within viewport'; console.log(step);
-  await page.reload(); await page.locator('#chat-input').waitFor(); await settings();
+  await page.reload(); await page.locator('.nav [data-page="settings"]').waitFor(); await settings();
   assert.equal(await page.locator('#task-chat').inputValue(), JSON.stringify({ providerId: secondId, modelId: 'qa-vision' }));
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'AI settings overflow at 390px');

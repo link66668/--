@@ -43,6 +43,7 @@ test('真实 HTTP、SQLite、跨账号隔离、冲突与 AI 集成', async t => 
   const alice = { cookie: '' };
   const bob = { cookie: '' };
   async function api(path, method = 'GET', body, client = alice, headers = {}) {
+    if (path === '/api/providers' && method === 'PUT' && body.version === undefined) body = { ...body, version: (await api('/api/providers', 'GET', undefined, client)).body.version };
     const response = await fetch(`${base}${path}`, { method, headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(client.cookie ? { Cookie: client.cookie } : {}), ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const setCookie = response.headers.get('set-cookie');
     if (setCookie) client.cookie = setCookie.split(';')[0];

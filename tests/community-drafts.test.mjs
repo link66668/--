@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {CommunityDrafts,prepareCommunityDraft,draftKey,createCommunityConflictBackup} from '../public/community-drafts.js';
+const memoryStorage=()=>{const data=new Map();const key=x=>JSON.stringify(x);return {put:async value=>data.set(key([value.accountId,value.id]),structuredClone(value)),get:async value=>structuredClone(data.get(key(value))),delete:async value=>data.delete(key(value)),list:async id=>[...data.values()].filter(x=>x.accountId===id),close(){}};};
+test('community drafts retain binary media and isolate identical draft ids by account',async()=>{
+  const storage=memoryStorage(),a=new CommunityDrafts('alice',{storage}),b=new CommunityDrafts('bob',{storage});
+  await a.save({id:'same',title:'训练记录',assets:[{file:new Blob(['image-bytes'],{type:'image/png'})}]});
+  await b.save({id:'same',title:'饮食记录',assets:[]});
+  assert.equal((await a.get('same')).title,'训练记录');assert.equal(await (await a.get('same')).assets[0].file.text(),'image-bytes');
+  assert.equal((await b.list()).length,1);await b.remove('same');assert.equal(await b.get('same'),null);assert.equal((await a.list()).length,1);
+});
+test('saving snapshots cannot mutate a previously submitted draft or override its account',()=>{const draft={id:'x',accountId:'other',topics:['训练']};const saved=prepareCommunityDraft('me',draft,100);draft.topics.push('改变');assert.deepEqual(saved.topics,['训练']);assert.equal(saved.accountId,'me');assert.equal(saved.updatedAt,100);assert.throws(()=>draftKey('', 'x'));});
+test('queued draft writes preserve the last edit after a failed write',async()=>{const storage=memoryStorage();let first=true;const put=storage.put;storage.put=async value=>{if(first){first=false;throw new Error('quota');}return put(value);};const drafts=new CommunityDrafts('me',{storage});await assert.rejects(drafts.save({id:'x',title:'before'}));await drafts.save({id:'x',title:'after'});assert.equal((await drafts.get('x')).title,'after');});
+test('adopting a remote edit preserves local content and bytes in a separate conflict backup',async()=>{const drafts=new CommunityDrafts('me',{storage:memoryStorage()});const local={id:'editing',editId:'note',version:1,title:'my local title',assets:[{file:new Blob(['local-only-bytes'])}],publishing:true};const backup=createCommunityConflictBackup(local,'backup');await drafts.save(backup);await drafts.save({...local,title:'remote title',version:2,assets:[]});const preserved=await drafts.get('backup');assert.equal(preserved.title,'my local title');assert.equal(preserved.version,1);assert.equal(await preserved.assets[0].file.text(),'local-only-bytes');assert.equal(preserved.publishing,undefined);assert.equal((await drafts.get('editing')).title,'remote title');assert.throws(()=>createCommunityConflictBackup(local,'editing'));});

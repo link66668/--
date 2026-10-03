@@ -248,7 +248,9 @@ try {
   await transfer({ files: [{ name: 'logout.txt' }] });
   await logoutUploadStarted;
   await page.locator('.chat-file-card[data-status="uploading"]').waitFor();
-  await page.locator('[data-action="logout"]').click(); await page.locator('#auth-form').waitFor();
+  await page.locator('[data-action="logout"]').click();
+  await page.locator('[data-action="auth-jump"][data-mode="login"]').click();
+  await page.locator('#auth-form').waitFor();
   logoutGate.resolve(); await sleep(200);
   assert(failedRequests.some(request => request.name === 'logout.txt' && request.error?.includes('ABORTED')), 'Logout did not abort the pending upload request');
   await context.request.post(base + '/api/auth/login', { data: { email, password } });
