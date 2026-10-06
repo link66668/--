@@ -24,7 +24,7 @@ await promisify(execFile)(ffmpeg,['-hide_banner','-loglevel','error','-nostdin',
   '-t','1','-an','-vf','scale=480:-2','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p',clip],{windowsHide:true});
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const codeFiles=['public/app.js','public/chat-attachments.js','public/chat-motion.js','public/chat-motion-confirm.js','public/chat-motion-result.js','public/chat-stream.js','public/motion-view.js',
-  'public/motion-video.js','public/motion-worker.js','public/motion-rtmw.js','public/motion-mediapipe.js','public/motion-yolo26.js','public/motion-models.js',
+  'public/motion-video.js','public/motion-worker.js','public/motion-mediapipe.js','public/motion-models.js',
   'public/motion-analysis.js','public/motion-pose-data.js','public/motion-tracking.js','public/motion-smoothing.js','public/motion-report.js',
   'server/motion-coach-guided.mjs','server/motion-coach-temporal.mjs','server/chat-motion.mjs','server.mjs'];
 const codeHashes=Object.fromEntries(await Promise.all(codeFiles.map(async file=>[file,sha(await readFile(join(root,file)))])));
@@ -59,7 +59,7 @@ const server=await startServer({host:'127.0.0.1',port:0,dataDir,fetchImpl:async(
     const images=parts.filter(part=>part.type==='image_url');
     assert.equal(motionContext.selectedExercise.id,exercise.id);assert(images.length>0&&images.length<=6);
     assert(motionContext.evidence.frames.length>0);assert.equal(motionContext.evidence.poseSchema.landmarkIndices.length,17);
-    if(poseModel.id==='mediapipe-full'){
+    {
       assert.deepEqual(motionContext.evidence.poseSchema.worldPointFields,['x','y','z','visibility']);
       const world=motionContext.evidence.frames.flatMap(frame=>frame.worldLandmarks||[]).filter(Boolean);
       assert(world.length>0);assert(world.every(point=>point.length===4));assert(world.some(point=>Math.abs(point[2])>.001));
@@ -89,7 +89,7 @@ const server=await startServer({host:'127.0.0.1',port:0,dataDir,fetchImpl:async(
   assert.equal(ids.length,1,'The existing local video must be available as metadata in both turns');
   firstVideoId??=ids[0];assert.equal(ids[0],firstVideoId);
   assert(request.tools?.some(item=>item.function.name==='assess_motion_video'),'The native motion tool must be declared');
-  const schema=request.tools.find(item=>item.function.name==='assess_motion_video').function.parameters;assert.deepEqual(schema.properties.poseModel.enum,['rtmw','mediapipe-full','yolo26']);assert(schema.required.includes('poseModel'));
+  const schema=request.tools.find(item=>item.function.name==='assess_motion_video').function.parameters;assert.deepEqual(schema.properties.poseModel.enum,['mediapipe-lite','mediapipe-full','mediapipe-heavy']);assert(schema.required.includes('poseModel'));
   assert(!schema.required.includes('exerciseId'),'The AI must be able to initiate recognition before an exercise is known');
   const args={videoId:firstVideoId,poseModel:poseModel.id};toolCalls.push(args);
   return tool('assess_motion_video',args);
@@ -173,9 +173,9 @@ try{
   const submission=motionInputs.find(body=>body.input);assert(submission,'Client must submit the real extracted motion input');
   assert.equal(submission.input.actionConfirmed,true,'The submission must carry the real confirmation flag');
   const input=validateMotionCoachRequest(submission.input);assert.equal(input.reviewMode,'guided');assert.equal(input.selectedExerciseId,exercise.id);
-  assert.equal(input.poseData.schemaVersion,{rtmw:3,'mediapipe-full':6,yolo26:5}[poseModel.id]);assert.equal(input.poseData.retainedLandmarkIndices.length,poseModel.id==='yolo26'?13:17);assert(input.poseData.frameCount>=7);
+  assert.equal(input.poseData.schemaVersion,6);assert.equal(input.poseData.retainedLandmarkIndices.length,17);assert(input.poseData.frameCount>=7);
   assert.equal(input.fullAnalysis.measurements.length,input.poseData.frameCount);
-  if(poseModel.id==='mediapipe-full'){
+  {
     assert.equal(input.poseData.format,'mediapipe-world17-full');assert.equal(input.fullAnalysis.version,'motion-observations-3d-v1');
     assert.equal(input.fullAnalysis.coordinateSpace,'mediapipe-world-3d');
     assert(input.poseData.frames.some(frame=>frame.worldLandmarks?.some(point=>point&&Math.abs(point[2])>.001)));
@@ -186,7 +186,7 @@ try{
   const assessments=await records('motion-assessment');assert.equal(assessments.length,1);const assessment=assessments[0];
   const button=page.locator('.chat-motion-result [data-action="chat-motion-detail"]').first();assert.equal(await button.getAttribute('data-report-id'),assessment.id);
   const savedCoach=assessment.data.coach||assessment.data.report?.coach;assert.equal(savedCoach.mode,'guided');assert.equal(savedCoach.action.exerciseId,exercise.id);
-  if(poseModel.id==='mediapipe-full'){
+  {
     assert.equal(assessment.data.analysis.coordinateSpace,'mediapipe-world-3d');
   }
   const conversations=await records('conversation'),conversation=conversations.find(record=>record.data.messages.some(message=>message.motionVideos?.length));assert(conversation);

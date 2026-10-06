@@ -93,7 +93,7 @@ export function mountMotionView(container,{saveAssessment,listAssessments,delete
     <div class="motion-workspace">
       <section class="motion-input card" aria-labelledby="motion-upload-title">
         <div class="motion-section-head"><div><span class="motion-step">01 / 选择视频</span><h2 id="motion-upload-title">从一组动作开始</h2></div><span class="badge neutral">先识别，再确认</span></div>
-        <div class="motion-exercise-field"><label for="motion-pose-model">骨架分析模型</label><select id="motion-pose-model" data-motion-pose-model aria-describedby="motion-pose-model-help">${MOTION_POSE_MODELS.map(model=>`<option value="${model.id}"${model.id===selectedPoseModel?' selected':''}>${model.tier} · ${model.label}</option>`).join('')}</select><p id="motion-pose-model-help">默认标准 MediaPipe Full 提供估计三维骨架；高精度 RTMW-L 和 YOLO26s-Pose 提供二维骨架。YOLO26 不含脚跟、脚尖节点。更换模型后需重新分析视频。</p></div>
+        <div class="motion-exercise-field"><label for="motion-pose-model">骨架分析模型</label><select id="motion-pose-model" data-motion-pose-model aria-describedby="motion-pose-model-help">${MOTION_POSE_MODELS.map(model=>`<option value="${model.id}"${model.id===selectedPoseModel?' selected':''}>${model.tier} · ${model.label}</option>`).join('')}</select><p id="motion-pose-model-help">三档均使用三维骨架和 17 个关键点分析。默认标准 MediaPipe Full；快速适合低性能设备；高精度 MediaPipe Heavy 精度更高，但分析时间更长。更换模型后需重新分析视频。</p></div>
         <input type="file" data-motion-file accept="${MOTION_VIDEO_ACCEPT}" hidden aria-label="选择训练视频">
         <button type="button" class="motion-dropzone" data-motion-action="choose"><span class="motion-upload-mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><rect x="6" y="10" width="36" height="28" rx="8" stroke="currentColor" stroke-width="1.8"/><path d="m21 18 10 6-10 6V18Z" fill="currentColor"/><path d="M12 5v5m24-5v5M12 38v5m24-5v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><strong>选择或拖入训练视频</strong><span>支持手机视频 · MP4、MOV、WebM 等格式</span><small>最长 ${MOTION_VIDEO_LIMITS.maxDuration/60} 分钟 · 最大 ${MOTION_VIDEO_LIMITS.maxBytes/1024/1024} MB</small><span class="motion-choose-label">选择视频 <span aria-hidden="true">↗</span></span></button>
         <div class="motion-file-details" data-motion-metadata hidden></div>
@@ -371,7 +371,7 @@ export function mountMotionView(container,{saveAssessment,listAssessments,delete
       if(!evidence.images.length)throw new Error('未能提取训练者的关键画面，请调整拍摄或点选训练者后重新评估。');
       reviewCache={file:activeFile,pipeline:activePipeline,evidence};
       const analysis=evidence.summary;
-      const poseData=buildMotionPoseData(activePipeline,{bodyOnly:true}),fullAnalysis=buildFullMotionAnalysis(base,activePipeline);
+      const poseData=buildMotionPoseData(activePipeline),fullAnalysis=buildFullMotionAnalysis(base,activePipeline);
       const keyframes=evidence.images.map(({time,mimeType,dataUrl,imageTime})=>({time,mimeType,data:dataUrl.slice(dataUrl.indexOf(',')+1),imageTime}));
       coachMessage=reviewMode==='recognize'?'AI 正在结合骨架和关键画面识别动作…':`AI 正在结合骨架和 ${keyframes.length} 张关键画面评价${getMotionExercise(activeExerciseId).name}…`;renderLiveResult();
       const response=await reviewAssessment({duration:activePipeline.duration,analysis,keyframes,poseData,fullAnalysis,reviewMode,...(reviewMode==='guided'?{selectedExerciseId:activeExerciseId}:{})},{signal:abort.signal,onProgress:value=>{if(current()){coachMessage=motionCoachProgress(value);renderLiveResult();}}});
@@ -416,7 +416,7 @@ export function mountMotionView(container,{saveAssessment,listAssessments,delete
     } else if(!pipeline&&targetPoint&&!selectingTarget) {
       context.strokeStyle='#c4ceff';context.lineWidth=3;context.beginPath();context.arc(targetPoint.x*canvas.width,targetPoint.y*canvas.height,12,0,Math.PI*2);context.stroke();
     }
-    drawMotionOverlay(context,frame?.wholebodyLandmarks??frame?.landmarks,canvas.width,canvas.height);
+    drawMotionOverlay(context,frame?.landmarks,canvas.width,canvas.height);
   }
   function playbackLoop() { if(destroyed||suspended)return;drawOverlay();if(!video.paused&&!video.ended)animationId=requestAnimationFrame(playbackLoop); }
   function timestampButton(time,label,canSeek) {return canSeek&&finite(time)?`<button type="button" class="motion-time" data-motion-action="seek" data-time="${time}" aria-label="跳转到 ${escapeHtml(preciseClock(time))} 查看${escapeHtml(label)}">${preciseClock(time)} <span aria-hidden="true">↗</span></button>`:`<span class="motion-time">${preciseClock(time)}</span>`;}

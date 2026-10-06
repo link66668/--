@@ -1,4 +1,4 @@
-// Real MediaPipe Full 3D pixels and all three decoder paths; local mock visual AI.
+// Real MediaPipe Lite/Full/Heavy 3D pixels and the shared decoder paths; local mock visual AI.
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
@@ -15,6 +15,9 @@ await promisify(execFile)(process.env.QA_FFMPEG||join(root,'.qa/motion-fixtures/
 const {chromium}=await import(pathToFileURL(process.env.QA_PLAYWRIGHT||join(root,'.qa/browser-tools/node_modules/playwright/index.mjs')));
 const calls=[];
 const confirmationOnly=process.env.QA_CONFIRMATION_ONLY==='1';
+const tiers=['mediapipe-lite','mediapipe-full','mediapipe-heavy'];
+const tierCases=tiers.map(model=>({scenario:model,model,decoder:'webcodecs',ui:model==='mediapipe-full'}));
+const cases=confirmationOnly?[tierCases[1]]:process.env.QA_TIERS_ONLY==='1'?tierCases:[...tierCases,{scenario:'full-html-video',model:'mediapipe-full',decoder:'html-video'},{scenario:'full-ffmpeg-direct',model:'mediapipe-full',decoder:'ffmpeg-direct'},{scenario:'full-webcodecs-auto',model:'mediapipe-full',decoder:'webcodecs',automatic:true}];
 let recognitionCount=0;
 const worldFields=['x','y','z','visibility'];
 function assertWorldContext(input){
@@ -50,8 +53,7 @@ const origin=`http://127.0.0.1:${server.address().port}`;
 const browser=await chromium.launch({executablePath:process.env.QA_BROWSER||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true});
 const results=[];
 try{
- for(const scenario of confirmationOnly?['webcodecs']:['webcodecs','html-video','ffmpeg-direct','webcodecs-auto']){
-  const decoder=scenario==='webcodecs-auto'?'webcodecs':scenario, automatic=scenario==='webcodecs-auto';
+ for(const {scenario,model,decoder,ui=false,automatic=false} of cases){
   const context=await browser.newContext({serviceWorkers:'block',viewport:{width:1280,height:1000}});
   const requests=[],errors=[];context.on('request',r=>requests.push(r.url()));
   // Force CPU fallback, retaining real MediaPipe inference. Force only the
@@ -66,25 +68,25 @@ try{
   await page.route(origin+'/qa-motion',async route=>{const response=await context.request.get(origin);await route.fulfill({response,body:'<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/motion.css"></head><body><input id="fixture" type="file" hidden><div id="motion"></div></body></html>'});});
   await page.goto(origin+'/qa-motion');
   await page.locator('#fixture').setInputFiles(clip);
-  let output=confirmationOnly?null:await page.evaluate(async()=>{
+  let output=confirmationOnly?null:await page.evaluate(async model=>{
    const {analyzeVideo}=await import('/motion-video.js');
    const {analyzeMotion}=await import('/motion-analysis.js');
    const {buildMotionPoseData,buildFullMotionAnalysis}=await import('/motion-pose-data.js');
    const {buildMotionEvidence}=await import('/motion-evidence.js');
    const file=document.querySelector('#fixture').files[0];
-   const pipeline=await analyzeVideo(file,{model:'mediapipe-full',sampleFps:7.5});
+   const pipeline=await analyzeVideo(file,{model,sampleFps:7.5});
    const observations=analyzeMotion(pipeline.frames,pipeline),evidence=await buildMotionEvidence(file,pipeline,observations);
-   const body={duration:pipeline.duration,selectedExerciseId:'squat',reviewMode:'guided',analysis:evidence.summary,poseData:buildMotionPoseData(pipeline,{bodyOnly:true}),fullAnalysis:buildFullMotionAnalysis(observations,pipeline),keyframes:evidence.images.map(({time,mimeType,dataUrl,imageTime})=>({time,mimeType,data:dataUrl.split(',')[1],imageTime}))};
+   const body={duration:pipeline.duration,selectedExerciseId:'squat',reviewMode:'guided',analysis:evidence.summary,poseData:buildMotionPoseData(pipeline),fullAnalysis:buildFullMotionAnalysis(observations,pipeline),keyframes:evidence.images.map(({time,mimeType,dataUrl,imageTime})=>({time,mimeType,data:dataUrl.split(',')[1],imageTime}))};
    const response=await fetch('/api/motion/coach',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
    if(!response.ok)throw Error(await response.text());
-   return {decoder:pipeline.decoder,delegate:pipeline.delegate,frames:pipeline.frames.length,observed:pipeline.frames.filter(frame=>frame.landmarks.length===33).length,body,coach:await response.json()};
-  });
+   return {modelVersion:pipeline.modelVersion,decoder:pipeline.decoder,delegate:pipeline.delegate,frames:pipeline.frames.length,observed:pipeline.frames.filter(frame=>frame.landmarks.length===33).length,body,coach:await response.json()};
+  },model);
   if(output){assert.equal(output.decoder,decoder);if(!automatic)assert.equal(output.delegate,'CPU');assert.equal(output.frames,8);assert(output.observed>0);
   assert.equal(output.body.poseData.format,'mediapipe-world17-full');assert.equal(output.body.poseData.schemaVersion,6);
   assert.equal(output.body.fullAnalysis.version,'motion-observations-3d-v1');assert.equal(output.body.fullAnalysis.coordinateSpace,'mediapipe-world-3d');
   assert(output.body.poseData.frames.some(frame=>frame.worldLandmarks.some(point=>point&&Math.abs(point[2])>.001)));
   assertWorldAngle(output.body);validateMotionCoachRequest(output.body);assert.equal(output.coach.mode,'guided');}
-  if(scenario==='webcodecs'){
+  if(ui){
    await page.evaluate(async()=>{
     const {mountMotionView}=await import('/motion-view.js');
     window.qaReviews=[];window.qaSaved=[];
@@ -123,7 +125,7 @@ try{
    await page.locator('[data-motion-action="save"]').click();await page.waitForFunction(()=>window.qaSaved.length===2);
    await page.screenshot({path:join(dataDir,'actionable-correction.png'),fullPage:true});
    if(confirmationOnly)output=await page.evaluate(()=>({decoder:window.qaPipeline.decoder,delegate:window.qaPipeline.delegate,frames:window.qaPipeline.frames.length,observed:window.qaPipeline.frames.filter(frame=>frame.landmarks.length===33).length,body:window.qaReviews[3],coach:window.qaSaved[1].coach,confirmation:{reviews:window.qaReviews.map(body=>({mode:body.reviewMode,selectedExerciseId:body.selectedExerciseId})),poseExtractions:window.qaPoseExtractions,saved:window.qaSaved.length,noFindingStatus:window.qaSaved[0].coach.verdict.status}}));
-   await page.locator('[data-motion-pose-model]').selectOption('rtmw');assert(await page.locator('[data-motion-results]').isHidden());assert.equal(await page.locator('[data-motion-action="analyze"]').textContent(),'分析视频并识别动作');
+   await page.locator('[data-motion-pose-model]').selectOption('mediapipe-heavy');assert.match(await page.locator('#motion').textContent(),/精度更高，但分析时间更长/);assert(await page.locator('[data-motion-results]').isHidden());assert.equal(await page.locator('[data-motion-action="analyze"]').textContent(),'分析视频并识别动作');
    if(!confirmationOnly){
    const callCount=calls.length;
    const cancellation=await page.evaluate(async()=>{
@@ -146,12 +148,12 @@ try{
    output.cancellation=cancellation;
    }
   }
-  assert(!requests.some(url=>/\.onnx(?:\?|$)/.test(url)));assert(requests.some(url=>url.endsWith('/pose_landmarker_full.task')));assert(requests.every(url=>new URL(url).origin===origin));
+  assert(!requests.some(url=>/\.onnx(?:\?|$)/.test(url)));assert(requests.some(url=>url.endsWith('/pose_landmarker_'+model.replace('mediapipe-','')+'.task')));assert.deepEqual([...new Set(requests.filter(url=>/\.task(?:\?|$)/.test(url)).map(url=>new URL(url).pathname))],['/vendor/mediapipe/pose_landmarker_'+model.replace('mediapipe-','')+'.task']);assert(requests.every(url=>new URL(url).origin===origin));
   const kneeAngle=assertWorldAngle(output.body);validateMotionCoachRequest(output.body);
   assert.deepEqual(errors,[]);
-  results.push({scenario,decoder,delegate:output.delegate,frames:output.frames,observed:output.observed,format:output.body.poseData.format,
+  results.push({scenario,model,decoder,delegate:output.delegate,frames:output.frames,observed:output.observed,format:output.body.poseData.format,
    coordinateSpace:output.body.fullAnalysis.coordinateSpace,worldObserved:output.body.poseData.frames.filter(frame=>frame.worldLandmarks.some(Boolean)).length,kneeAngle,confirmation:output.confirmation,cancellation:output.cancellation});console.log(results.at(-1));
   await context.close();
  }
- await writeFile(join(dataDir,'results.json'),JSON.stringify({passed:true,scope:confirmationOnly?'Real MediaPipe Full extraction; recognition then correction and explicit confirmation; same skeleton and images reused; unknown recognition manual confirmation; no-finding and concrete-issue displays; desktop/mobile and save. Local mock AI.':'Real MediaPipe Full world coordinates, 3D knee measurements, all decoders, AI context, UI confirmation/save/switch and cancellation. AI is a local fixture; this does not assess model accuracy.',results,calls:calls.length,coachEvidence:calls},null,2));console.log(dataDir);
+ await writeFile(join(dataDir,'results.json'),JSON.stringify({passed:true,scope:confirmationOnly?'Real MediaPipe Full extraction; recognition then correction and explicit confirmation; same skeleton and images reused; unknown recognition manual confirmation; no-finding and concrete-issue displays; desktop/mobile and save. Local mock AI.':'Real MediaPipe Lite/Full/Heavy world coordinates, 3D knee measurements, shared decoders, AI context, UI confirmation/save/switch and cancellation. AI is a local fixture; this does not assess model accuracy.',results,calls:calls.length,coachEvidence:calls},null,2));console.log(dataDir);
 }finally{await browser.close();await new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});}

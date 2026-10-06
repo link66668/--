@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateVideoFile, validateVideoMetadata, sampleVideoTimes, browserSeekTime, scaledVideoSize, analyzeVideo, MOTION_MODEL_VERSION } from '../public/motion-video.js';
-import { mapWholebodyLandmarks } from '../public/motion-rtmw.js';
+import { validateVideoFile, validateVideoMetadata, sampleVideoTimes, browserSeekTime, scaledVideoSize, analyzeVideo } from '../public/motion-video.js';
 import { getMotionPoseModel } from '../public/motion-models.js';
 
 test('video intake rejects empty, oversize, unsupported and excessive-duration files', () => {
@@ -54,13 +53,12 @@ test('invalid sampling rates reject before browser resources are opened', async 
   }
 });
 
-function browserHarness(t, { decoder = 'webcodecs', failGpu = false, failParser = false, failDecode = false, includeWorld = false } = {}) {
+function browserHarness(t, { decoder = 'webcodecs', failGpu = false, failParser = false, failDecode = false, includeWorld = true } = {}) {
   const workers = [], requests = [], bitmaps = [], urls = new Set();
   const metadata = { duration: .2, width: 320, height: 240, sourceFps: 30 };
-  const wholebodyLandmarks = Array.from({ length: 133 }, (_, i) => ({ x: i / 200, y: i / 300, score: .7 }));
-  const landmarks = mapWholebodyLandmarks(wholebodyLandmarks);
+  const landmarks = Array.from({length:33},(_,i)=>({x:i/50,y:i/40,z:i/100,visibility:.7}));
   const worldLandmarks = landmarks.map((point,index) => point && ({x:point.x-.5,y:point.y-.5,z:index*.02-.3,visibility:point.visibility}));
-  const frame = time => ({ time, landmarks, wholebodyLandmarks, ...(includeWorld?{worldLandmarks}:{}), personCount: 1, multiPersonCheck: true,
+  const frame = time => ({ time, landmarks, worldLandmarks:includeWorld?worldLandmarks:[], personCount: 1, multiPersonCheck: true,
     subjectTracking: { status: 'locked', confidence: .9 }, inferenceMs: 3 });
   const replace = (object, key, value) => {
     const descriptor = Object.getOwnPropertyDescriptor(object, key);
@@ -86,7 +84,7 @@ function browserHarness(t, { decoder = 'webcodecs', failGpu = false, failParser 
         if (this.stopped) return;
         switch (data.type) {
           case 'inspect': emit({ type: 'done', metadata, frames: [{ bytes: new Uint8Array([1]), time: 0 }] }); break;
-          case 'init': emit(failGpu && data.delegate === 'GPU' ? { error: 'WebGPU unavailable' } : { delegate: data.delegate, modelVersion: MOTION_MODEL_VERSION }); break;
+          case 'init': emit(failGpu && data.delegate === 'GPU' ? { error: 'WebGPU unavailable' } : { delegate: data.delegate, modelVersion: getMotionPoseModel(data.model).version }); break;
           case 'prepare-source': emit({ metadata }); break;
           case 'prepare-mp4': this.sampleFps = data.options.sampleFps; emit(failParser ? { error: 'parser failed' } : { supported: decoder === 'webcodecs', sourceFps: 30 }); break;
           case 'decode-source': case 'decode-mp4':
@@ -105,28 +103,27 @@ function browserHarness(t, { decoder = 'webcodecs', failGpu = false, failParser 
   replace(globalThis, 'createImageBitmap', async () => { const bitmap = { closed: false, close() { this.closed = true; } }; bitmaps.push(bitmap); return bitmap; });
   replace(URL, 'createObjectURL', () => { const url = `blob:test-${urls.size}`; urls.add(url); return url; });
   replace(URL, 'revokeObjectURL', url => urls.delete(url));
-  return { workers, requests, bitmaps, urls, wholebodyLandmarks, landmarks, worldLandmarks };
+  return { workers, requests, bitmaps, urls, landmarks, worldLandmarks };
 }
 
-for (const options of [
+for (const model of ['mediapipe-lite','mediapipe-full','mediapipe-heavy']) for (const options of [
   { decoder: 'webcodecs', failGpu: true },
   { decoder: 'html-video', failGpu: true },
   { decoder: 'ffmpeg-direct', failGpu: true },
   { decoder: 'webcodecs', failParser: true },
   { decoder: 'webcodecs', failDecode: true },
-]) test(`RTMW preserves all 133 points and releases resources: ${JSON.stringify(options)}`, async t => {
+]) test(`${model} preserves 33 image and world points and releases resources: ${JSON.stringify(options)}`, async t => {
   const state = browserHarness(t, options);
-  const result = await analyzeVideo({ name: 'clip.mp4', size: 20 }, {model:'rtmw'});
+  const result = await analyzeVideo({ name: 'clip.mp4', size: 20 }, {model});
   assert.equal(result.decoder, options.failParser || options.failDecode ? 'html-video' : options.decoder);
-  assert.equal(result.modelVersion, 'RTMW-L 384x288 20231122 / COCO WholeBody 133 / flip-test');
+  assert.equal(result.modelVersion, getMotionPoseModel(model).version);
   assert.equal(result.delegate, options.failGpu ? 'CPU' : 'GPU');
   assert.deepEqual(result.frames.map(item => item.time), sampleVideoTimes(.2));
   for (const frame of result.frames) {
-    assert.deepEqual(frame.wholebodyLandmarks, state.wholebodyLandmarks);
     assert.deepEqual(frame.landmarks, state.landmarks);
-    assert.equal('worldLandmarks' in frame, false);
+    assert.deepEqual(frame.worldLandmarks,state.worldLandmarks);
   }
-  assert(state.requests.filter(request => request.type === 'init').every(request => request.model === 'rtmw'));
+  assert(state.requests.filter(request => request.type === 'init').every(request => request.model === model));
   assert.equal('actionRecognition' in result, false);
   assert(state.workers.every(worker => worker.stopped));
   assert(state.bitmaps.every(bitmap => bitmap.closed));
@@ -156,7 +153,7 @@ for (const decoder of ['webcodecs', 'html-video', 'ffmpeg-direct']) {
     assert(state.bitmaps.every(bitmap => bitmap.closed));
   });
 
-  test(`cancelling RTMW stops ${decoder} inference and closes browser resources`, async t => {
+  test(`cancelling MediaPipe stops ${decoder} inference and closes browser resources`, async t => {
     const state = browserHarness(t, { decoder }), controller = new AbortController();
     await assert.rejects(analyzeVideo({ name: 'clip.mp4', size: 20 }, {
       signal: controller.signal,

@@ -66,18 +66,29 @@ test('world transport keeps zero depth, absent fields, explicit unknowns and una
   assert.equal(data.schemaVersion, 6);
 });
 
-test('new MediaPipe model cannot silently downgrade while old planar transport remains readable', () => {
-  const source = pipeline();
-  source.frames.forEach(frame => delete frame.worldLandmarks);
-  const missing = buildMotionPoseData(source);
-  assert.equal(missing.schemaVersion, 6);
-  assert(missing.frames.every(frame => frame.worldLandmarks.length === 0));
-  source.modelVersion = source.modelVersion.replace(' / world3d-v1', '');
-  const legacy = buildMotionPoseData(source);
-  assert.equal(legacy.schemaVersion, 4);
-  assert.strictEqual(validateMotionPoseData(legacy), legacy);
-  legacy.modelVersion += ' / world3d-v1';
-  assert.throws(() => validateMotionPoseData(legacy), /不能降级为二维/);
+test('all three tiers require the same world schema and cannot silently downgrade', () => {
+  for (const tier of ['Lite', 'Full', 'Heavy']) {
+    const source = pipeline(); source.modelVersion = source.modelVersion.replace('Full', tier);
+    const data = buildMotionPoseData(source);
+    assert.equal(data.schemaVersion, 6);
+    assert.equal(data.format, 'mediapipe-world17-full');
+    assert.equal(data.retainedLandmarkIndices.length, 17);
+    assert.strictEqual(validateMotionPoseData(data), data);
+    const input = validateMotionCoachRequest(request(source));
+    const {evidence} = buildMotionTemporalEvidence(input);
+    assert.equal(evidence.poseSchema.measurementCoordinateSpace, 'mediapipe-world-3d');
+    assert(evidence.frames.every(frame => frame.worldLandmarks.length === 17));
+    assert.deepEqual(evidence.poseSchema.landmarkIndices, MOTION_BODY_LANDMARK_INDICES);
+    source.frames.forEach(frame => delete frame.worldLandmarks);
+    const missing = buildMotionPoseData(source);
+    assert(missing.frames.every(frame => frame.worldLandmarks.length === 0));
+    source.modelVersion = source.modelVersion.replace(' / world3d-v1', '');
+    assert.throws(() => buildMotionPoseData(source), /三维模型/);
+    for (const version of [2, 3, 4, 5]) {
+      const obsolete = structuredClone(data); obsolete.schemaVersion = version;
+      assert.throws(() => validateMotionPoseData(obsolete), /三维骨架协议/);
+    }
+  }
 });
 
 test('world schema rejects invalid confidence, malformed tuples, hidden fields and mismatched point definitions', () => {
@@ -92,8 +103,8 @@ test('world schema rejects invalid confidence, malformed tuples, hidden fields a
     d => { d.frames[0].landmarks = []; },
     d => { d.worldPointFields = ['x', 'y', 'visibility', 'z']; },
   ]) { const invalid = structuredClone(data); mutate(invalid); assert.throws(() => validateMotionPoseData(invalid)); }
-  const wrongModel = pipeline(); wrongModel.modelVersion = 'YOLO26s-Pose fixture';
-  assert.throws(() => buildMotionPoseData(wrongModel), /不支持的字段/);
+  const wrongModel = pipeline(); wrongModel.modelVersion = 'unsupported skeleton fixture';
+  assert.throws(() => buildMotionPoseData(wrongModel), /三维模型/);
 });
 
 test('request validation rejects mixing 2D observations with 3D coordinates in either direction', () => {
@@ -102,9 +113,9 @@ test('request validation rejects mixing 2D observations with 3D coordinates in e
   const planarAnalysis = structuredClone(body);
   planarAnalysis.fullAnalysis.version = 'motion-observations-v1';
   delete planarAnalysis.fullAnalysis.coordinateSpace;
-  assert.throws(() => validateMotionCoachRequest(planarAnalysis), /坐标维度不一致/);
-  const source = pipeline(); source.modelVersion = source.modelVersion.replace(' / world3d-v1', ''); source.frames.forEach(frame => delete frame.worldLandmarks);
-  assert.throws(() => validateMotionCoachRequest({...body, poseData: buildMotionPoseData(source)}), /坐标维度不一致/);
+  assert.throws(() => validateMotionCoachRequest(planarAnalysis), /仅支持三维观测协议/);
+  const invalidPose = structuredClone(body.poseData); invalidPose.schemaVersion = 4;
+  assert.throws(() => validateMotionCoachRequest({...body, poseData: invalidPose}), /三维骨架协议/);
   const invalid = structuredClone(body.fullAnalysis); invalid.coordinateSpace = 'image-2d';
   assert.throws(() => validateFullMotionAnalysis(invalid), /三维观测必须声明/);
 });

@@ -95,8 +95,9 @@ test('extracted evidence retains two complete scenes for equipment and keeps the
 });
 
 test('summary contains only observation metadata without duplicated measurements or old judgements',()=>{
- const report={version:'motion-observations-v1',quality:{totalFrames:150,validFrames:100,usableRatio:2/3,sourceFps:null,targetCoverage:null,reasons:[],frames:[1,2],score:100},measurements:Array.from({length:150},(_,frameIndex)=>({frameIndex,time:frameIndex/15})),score:100,reps:[{score:99}],checks:[{status:'fail'}],issues:[{message:'old rule'}],exerciseId:'squat',file:'private-name',dataUrl:'data:image/jpeg;base64,ignored'};
+ const report={version:'motion-observations-3d-v1',coordinateSpace:'mediapipe-world-3d',quality:{totalFrames:150,validFrames:100,usableRatio:2/3,sourceFps:null,targetCoverage:null,reasons:[],frames:[1,2],score:100},measurements:Array.from({length:150},(_,frameIndex)=>({frameIndex,time:frameIndex/15})),score:100,reps:[{score:99}],checks:[{status:'fail'}],issues:[{message:'old rule'}],exerciseId:'squat',file:'private-name',dataUrl:'data:image/jpeg;base64,ignored'};
  const result=summarizeMotionAnalysis(report,{duration:10,sampleFps:15,sourceFps:null});
+ assert.equal(result.version,'motion-observations-3d-v1');assert.equal(result.coordinateSpace,'mediapipe-world-3d');
  assert.equal(result.quality.validFrames,100);assert.equal(result.sourceFps,null);
  assert.deepEqual(Object.keys(result.quality).sort(),['reasons','sourceFps','targetCoverage','totalFrames','usableRatio','validFrames'].sort());
  for(const key of ['score','reps','checks','issues','exerciseId','measurements'])assert.equal(result[key],undefined,key);

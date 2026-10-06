@@ -42,7 +42,7 @@ try {
  await page.route('**/motion-software-decode.js', route => route.fulfill({contentType: 'text/javascript', body: decoderSource}));
  await page.route('**/qa-software-batches-worker.js', route => route.fulfill({contentType: 'text/javascript', body: workerScript}));
  await page.exposeFunction('qaSoftwareProgress', value => console.log(JSON.stringify(value)));
- await page.goto(`http://127.0.0.1:${server.address().port}/vendor/rtmw/README.md`);
+ await page.goto(`http://127.0.0.1:${server.address().port}/vendor/README.md`);
  await page.evaluate(() => {document.body.innerHTML = '<input type="file">';});
  await page.locator('input').setInputFiles(video);
  const results = [];

@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {loadMotionReferencePack, buildMotionReferenceRequest, normalizeMotionReferenceResponse, createMotionReferenceFetch} from '../scripts/motion-dataset-reference.mjs';
 import {completeMotionCoach, validateMotionCoachRequest} from '../server/motion-coach.mjs';
-import {toRtmwPipeline} from './helpers/motion-rtmw-pipeline.mjs';
+import {toMediaPipePipeline} from './helpers/motion-mediapipe-pipeline.mjs';
 import {analyzeMotion} from '../public/motion-analysis.js';
 import {buildMotionPoseData, buildFullMotionAnalysis} from '../public/motion-pose-data.js';
 
@@ -144,11 +144,11 @@ test('upstream transport errors are not mislabeled as reference-evidence rejecti
 });
 
 test('reference wrapper through the production coach counts only target images as reviewed evidence', async () => {
-  const pipeline = toRtmwPipeline({duration: 4, width: 1280, height: 720, sampleFps: 15, sourceFps: 30,
+  const pipeline = toMediaPipePipeline({duration: 4, width: 1280, height: 720, sampleFps: 15, sourceFps: 30,
     frames: Array.from({length: 60}, (_, index) => ({time: index / 15, personCount: 1,
       landmarks: Array.from({length: 33}, (_, joint) => ({x: .2 + joint / 100, y: .2 + joint / 100, visibility: .97}))}))});
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ioAAAAASUVORK5CYII=';
-  const input = validateMotionCoachRequest({reviewMode: 'efficient', duration: 4, analysis: {}, poseData: buildMotionPoseData(pipeline, {bodyOnly: true}),
+  const input = validateMotionCoachRequest({reviewMode: 'efficient', duration: 4, analysis: {}, poseData: buildMotionPoseData(pipeline),
     fullAnalysis: buildFullMotionAnalysis(analyzeMotion(pipeline.frames, pipeline), pipeline), keyframes: [.3, 3.7].map(time => ({time, mimeType: 'image/png', data: png}))});
   let sent;
   const fetchImpl = createMotionReferenceFetch({pack: packFixture(), fetchImpl: async (_url, options) => {

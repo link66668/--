@@ -31,7 +31,7 @@ for (let i = 0; i < args.length; i++) {
 }
 if (options['--help']) {
   console.log('Guided evaluation: --review-mode guided requires each manifest item.selectedExerciseId. Optional --protocol JSON freezes actual system/model/config and code hashes. --short-first changes processing order only. User-selected actions never count as recognition accuracy.');
-  console.log('Usage: node scripts/qa-motion-dataset.mjs --mode inventory|sparse|extract|coach [--dataset 测试集] [--manifest JSON] [--sample-fps 7.5|15] [--one-per-exercise] [--limit N] [--exercise ID,ID] [--subject ID,ID] [--id ID,ID] [--seed VALUE] [--verify-hashes] [--output PATH] [--minimum-accuracy 0.85] [--timeout-ms 900000] [--delegate CPU|GPU] [--review-mode efficient|full] [--stored-provider ID --budget-cny 50] [--replay EXTRACT_OUTPUT --rebuild-images] [--reference-review JSON] [--acceptance rate|each-exercise] [--visual-reference-pack JSON]\nSparse: 6 true frames per clip, shared RTMW model, no action/form claims. Extract/coach: complete production video pipeline. Coach: explicit QA_MOTION_BASE_URL, QA_MOTION_MODEL, QA_MOTION_API_KEY or --stored-provider for an authorized saved DeepSeek provider; no implicit configuration lookup. Visual references are an explicit QA-only experiment, recorded separately; targets must be disjoint from reference source videos. QA_PLAYWRIGHT, QA_BROWSER and QA_FFMPEG can override local runtimes.');
+  console.log('Usage: node scripts/qa-motion-dataset.mjs --mode inventory|sparse|extract|coach [--dataset 测试集] [--manifest JSON] [--sample-fps 7.5|15] [--one-per-exercise] [--limit N] [--exercise ID,ID] [--subject ID,ID] [--id ID,ID] [--seed VALUE] [--verify-hashes] [--output PATH] [--minimum-accuracy 0.85] [--timeout-ms 900000] [--delegate CPU|GPU] [--review-mode efficient|full] [--stored-provider ID --budget-cny 50] [--replay EXTRACT_OUTPUT --rebuild-images] [--reference-review JSON] [--acceptance rate|each-exercise] [--visual-reference-pack JSON]\nSparse: 6 true frames per clip, shared MediaPipe Full model, no action/form claims. Extract/coach: complete production video pipeline. Coach: explicit QA_MOTION_BASE_URL, QA_MOTION_MODEL, QA_MOTION_API_KEY or --stored-provider for an authorized saved DeepSeek provider; no implicit configuration lookup. Visual references are an explicit QA-only experiment, recorded separately; targets must be disjoint from reference source videos. QA_PLAYWRIGHT, QA_BROWSER and QA_FFMPEG can override local runtimes.');
   process.exit(0);
 }
 const mode = options['--mode'] || 'inventory';
@@ -88,7 +88,7 @@ async function run() {
   const rows = items.map(item => ({id: item.id, expected: safeExpected(item), status: 'pending'}));
   const frozenProtocol=options['--protocol']?JSON.parse(await readFile(resolve(options['--protocol']),'utf8')):null;
   if(frozenProtocol&&frozenProtocol.reviewMode!==reviewMode)throw new Error('Frozen protocol review mode mismatch.');
-  const codeFiles = ['public/motion-video.js', 'public/motion-worker.js', 'public/motion-rtmw.js', 'public/motion-tracking.js',
+  const codeFiles = ['public/motion-video.js', 'public/motion-worker.js', 'public/motion-mediapipe.js', 'public/motion-tracking.js',
     'public/motion-software-decode.js', 'public/motion-source.js', 'public/motion-evidence.js', 'public/motion-analysis.js',
     'public/motion-pose-data.js', 'public/motion-catalog.js', 'public/motion-contract.js', 'public/motion-feedback.js', 'public/motion-verdict.js',
     'server/motion-coach.mjs', 'server/motion-coach-full.mjs', 'server/motion-coach-temporal.mjs', 'server/motion-coach-visual.mjs', 'server/motion-coach-guided.mjs', 'server/motion-coach-context.mjs',
@@ -101,7 +101,7 @@ async function run() {
   if (options['--rebuild-images'] && !replayRoot) throw new Error('--rebuild-images requires --replay pointing to a real extracted pipeline.');
   const replayReport = replayRoot ? JSON.parse(await readFile(join(replayRoot, 'results.json'), 'utf8')) : null;
   const report = {version: BENCHMARK_VERSION, generatedAt: new Date().toISOString(), mode, reviewMode, codeHashes, runtime: {node: process.version}, partition: inspected.manifest.partition || null, referenceReview: referenceMetadata, selection: {seed: options['--seed'] || 'motion-benchmark-1', totalManifestClips: inspected.manifest.items.length, selectedClips: items.length, fullDataset: items.length === inspected.manifest.items.length},
-    inference: {metadataLabelsExcluded: true, embeddedVideoTextUnmodified: true, neutralFilename: true, mock: false, replay: replayRoot, requestedSampleFps: sampleFps, sampleStrategy: mode === 'sparse' ? 'Six independent frames at 10%, 26%, 42%, 58%, 74%, 90%; real RTMW, no production temporal tracking.' : 'Unmodified analyzeVideo + buildMotionEvidence pipeline at explicitly recorded sampleFps.'}, rows};
+    inference: {metadataLabelsExcluded: true, embeddedVideoTextUnmodified: true, neutralFilename: true, mock: false, replay: replayRoot, requestedSampleFps: sampleFps, sampleStrategy: mode === 'sparse' ? 'Six independent frames at 10%, 26%, 42%, 58%, 74%, 90%; real MediaPipe Full, no production temporal tracking.' : 'Unmodified analyzeVideo + buildMotionEvidence pipeline at explicitly recorded sampleFps.'}, rows};
   const persist = async () => {
     report.inference.actualSampleRates = [...new Set(rows.map(row => row.pose?.sampleFps).filter(Number.isFinite))];
     report.summary = summarizeDatasetResults(rows, {minimumAccuracy, mode, acceptance, reviewMode});
@@ -158,11 +158,11 @@ async function run() {
       console.log(JSON.stringify({id: activeRow.id, pipelineProgress: activeRow.progress}));
       await persist();
     });
-    await page.goto(origin + '/vendor/rtmw/README.md');
+    await page.goto(origin + '/vendor/README.md');
     await page.evaluate(() => {document.body.innerHTML = '<input id="qa-dataset-file" type="file">';});
     if (mode === 'sparse') {
       const started = performance.now();
-      await page.evaluate(async delegate => {const {createRtmw} = await import('/motion-rtmw.js'); window.qaPose = await createRtmw({delegate});}, delegate);
+      await page.evaluate(async delegate => {const {createMediaPipe} = await import('/motion-mediapipe.js'); window.qaPose = await createMediaPipe({model:'mediapipe-full',delegate});window.qaPoseTimestamp=0;}, delegate);
       report.inference.initializationMs = Math.round(performance.now() - started);
     }
     for (let index = 0; index < items.length; index++) {
@@ -196,7 +196,7 @@ async function run() {
             let realPipeline;
             if (cached.framesFile) {
               realPipeline = JSON.parse(await readFile(await datasetVideoPath(replayRoot, cached.framesFile), 'utf8'));
-              cachedBody.poseData = buildMotionPoseData(realPipeline, {bodyOnly: true});
+              cachedBody.poseData = buildMotionPoseData(realPipeline);
               row.framesFile = `${artifactId}-frames.json`;
               await writeFile(join(output, row.framesFile), JSON.stringify(realPipeline));
             }
@@ -212,7 +212,7 @@ async function run() {
                 const observations = analyzeMotion(pipeline.frames, pipeline), started = performance.now();
                 const evidence = await buildMotionEvidence(file, pipeline, observations, {signal});
                 return {evidenceMs: performance.now() - started, quality: observations.quality,
-                  body: {duration: pipeline.duration, analysis: evidence.summary, poseData: buildMotionPoseData(pipeline, {bodyOnly: true}), fullAnalysis: buildFullMotionAnalysis(observations, pipeline),
+                  body: {duration: pipeline.duration, analysis: evidence.summary, poseData: buildMotionPoseData(pipeline), fullAnalysis: buildFullMotionAnalysis(observations, pipeline),
                     keyframes: evidence.images.map(({time, mimeType, dataUrl, imageTime}) => ({time, mimeType, data: dataUrl.slice(dataUrl.indexOf(',') + 1), imageTime}))}};
               }, {pipeline: realPipeline, timeoutMs});
               cachedBody = rebuilt.body;
@@ -250,7 +250,7 @@ async function run() {
             const poseMs = performance.now() - started, observations = analyzeMotion(pipeline.frames, pipeline), evidenceStarted = performance.now();
             const evidence = await buildMotionEvidence(file, pipeline, observations, {signal});
             return {pipeline, observations, evidenceMs: performance.now() - evidenceStarted, poseMs,
-              body: {duration: pipeline.duration, analysis: evidence.summary, poseData: buildMotionPoseData(pipeline, {bodyOnly: true}), fullAnalysis: buildFullMotionAnalysis(observations, pipeline),
+              body: {duration: pipeline.duration, analysis: evidence.summary, poseData: buildMotionPoseData(pipeline), fullAnalysis: buildFullMotionAnalysis(observations, pipeline),
                 keyframes: evidence.images.map(({time, mimeType, dataUrl, imageTime}) => ({time, mimeType, data: dataUrl.slice(dataUrl.indexOf(',') + 1), imageTime}))}};
           }, {timeoutMs, sampleFps, enforcedDelegate: delegate === 'CPU' ? 'CPU' : null});
           row.duration = result.pipeline.duration;
@@ -373,15 +373,15 @@ async function extractSparse(page, path, artifactId) {
     let poseMs = 0;
     for (let index = 0; index < samples.length; index++) {
       const sample = samples[index], bytes = Uint8Array.from(atob(sample.image), char => char.charCodeAt(0)), bitmap = await createImageBitmap(new Blob([bytes], {type: 'image/jpeg'}));
-      const started = performance.now(), pose = await window.qaPose.detect(bitmap), inferenceMs = performance.now() - started;
+      const started = performance.now(), pose = await window.qaPose.detect(bitmap,window.qaPoseTimestamp+=1000/30), inferenceMs = performance.now() - started;
       poseMs += inferenceMs;
-      frames.push({time: sample.time, width: bitmap.width, height: bitmap.height, inferenceMs, people: pose.landmarks.length, landmarks: pose.landmarks, wholebodyLandmarks: pose.wholebodyLandmarks});
+      frames.push({time: sample.time, width: bitmap.width, height: bitmap.height, inferenceMs, people: pose.landmarks.length, landmarks: pose.landmarks, worldLandmarks: pose.worldLandmarks});
       const x = (index % 3) * 320, y = Math.floor(index / 3) * 360, scale = Math.min(310 / bitmap.width, 325 / bitmap.height), width = bitmap.width * scale, height = bitmap.height * scale;
       const left = x + (320 - width) / 2, top = y + 26 + (328 - height) / 2;
       contactContext.drawImage(bitmap, left, top, width, height);
       contactContext.font = '13px sans-serif'; contactContext.fillStyle = '#fff'; contactContext.fillText(`${sample.time.toFixed(2)} s / people: ${pose.landmarks.length}`, x + 7, y + 17);
       contactContext.fillStyle = '#22ffe1';
-      for (const person of pose.wholebodyLandmarks) for (const point of person.slice(0, 23)) if (point.score > .25) {
+      for (const person of pose.landmarks) for (const index of [0,11,12,13,14,15,16,23,24,25,26,27,28,29,30,31,32]) { const point=person[index]; if (!point || point.visibility <= .25) continue;
         contactContext.beginPath(); contactContext.arc(left + point.x * width, top + point.y * height, 2, 0, 2 * Math.PI); contactContext.fill();
       }
       bitmap.close();
@@ -391,10 +391,10 @@ async function extractSparse(page, path, artifactId) {
   return {duration, sampleStrategy: 'six-independent-video-frames', frames: result.frames, contactSheet: result.contactSheet,
     timing: {decode: Math.round(decodeMs), pose: Math.round(result.poseMs)}, stats: {sampledFrames: result.frames.length, detectedFrames: result.frames.filter(frame => frame.people > 0).length,
       singlePersonFrames: result.frames.filter(frame => frame.people === 1).length, multiplePersonFrames: result.frames.filter(frame => frame.people > 1).length,
-      wholebodyPeople: result.frames.flatMap(frame => frame.wholebodyLandmarks).filter(person => person.length === 133).length}};
+      worldPeople: result.frames.flatMap(frame => frame.worldLandmarks).filter(person => person.length === 33).length}};
 }
 
 async function writeGallery(rows) {
   const escape = value => String(value).replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
-  await writeFile(join(output, 'index.html'), `<!doctype html><meta charset="utf-8"><title>真实视频 RTMW 抽样核验</title><style>body{margin:24px;font:16px system-ui;background:#eef2f6;color:#16232b}article{background:white;padding:18px;margin:18px 0;border-radius:12px}img{width:min(960px,100%)}p{max-width:960px;line-height:1.6}code{word-break:break-all}</style><h1>真实视频 RTMW 抽样核验</h1><p>每段原视频在 10%、26%、42%、58%、74%、90% 处解码，由项目原版 RTMW 推理。青色点为身体关键点。只检查独立图像能否提取人体，不能证明动作识别、标准评价或纠错准确率；不代表生产全片跟踪和耗时。</p>${rows.map(row => `<article><h2>${escape(row.expected.exerciseNameZh || row.expected.exercise)}</h2><p><code>${escape(row.id)}</code> · ${escape(row.expected.qualityLabel)} · ${escape(row.expected.view || '未标注视角')}</p>${row.contactSheet ? `<img src="${escape(row.contactSheet)}" loading="lazy"><p>有人体 ${row.pose.detectedFrames}/6 · 单人 ${row.pose.singlePersonFrames}/6 · 推理 ${row.timing.pose} ms</p>` : `<p>失败：${escape(row.error || '')}</p>`}</article>`).join('')}`);
+  await writeFile(join(output, 'index.html'), `<!doctype html><meta charset="utf-8"><title>真实视频 MediaPipe Full 抽样核验</title><style>body{margin:24px;font:16px system-ui;background:#eef2f6;color:#16232b}article{background:white;padding:18px;margin:18px 0;border-radius:12px}img{width:min(960px,100%)}p{max-width:960px;line-height:1.6}code{word-break:break-all}</style><h1>真实视频 MediaPipe Full 抽样核验</h1><p>每段原视频在 10%、26%、42%、58%、74%、90% 处解码，由项目原版 MediaPipe Full 推理。青色点为身体关键点。只检查独立图像能否提取人体，不能证明动作识别、标准评价或纠错准确率；不代表生产全片跟踪和耗时。</p>${rows.map(row => `<article><h2>${escape(row.expected.exerciseNameZh || row.expected.exercise)}</h2><p><code>${escape(row.id)}</code> · ${escape(row.expected.qualityLabel)} · ${escape(row.expected.view || '未标注视角')}</p>${row.contactSheet ? `<img src="${escape(row.contactSheet)}" loading="lazy"><p>有人体 ${row.pose.detectedFrames}/6 · 单人 ${row.pose.singlePersonFrames}/6 · 推理 ${row.timing.pose} ms</p>` : `<p>失败：${escape(row.error || '')}</p>`}</article>`).join('')}`);
 }

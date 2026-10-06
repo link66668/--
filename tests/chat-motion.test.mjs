@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {registerHooks} from 'node:module';
-import {makeRtmwPipeline} from './helpers/motion-rtmw-pipeline.mjs';
+import {makeMediaPipePipeline} from './helpers/motion-mediapipe-pipeline.mjs';
 import {validateMotionPoseData, validateFullMotionAnalysis} from '../public/motion-pose-data.js';
 import {getMotionPoseModel} from '../public/motion-models.js';
 
@@ -23,24 +23,16 @@ const flush = () => new Promise(resolve=>setImmediate(resolve));
 async function until(predicate){for(let i=0;i<40;i++){if(predicate())return;await flush();}assert.fail('Local analysis did not settle');}
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
 function pipeline(model='mediapipe-full'){
-  const value=makeRtmwPipeline(4);value.sampleFps=7.5;value.duration=4/7.5;
+  const value=makeMediaPipePipeline(4);value.sampleFps=7.5;value.duration=4/7.5;
   value.frames.forEach((frame,index)=>{frame.time=index/7.5;frame.sourceTime=index/7.5+.001;});
   value.modelVersion=getMotionPoseModel(model).version;
-  if(model==='mediapipe-full'){
-    value.coordinateSpace='mediapipe-world-3d';
-    for(const frame of value.frames){
-      frame.worldLandmarks=frame.landmarks.map((point,index)=>point?{x:point.x-.5,y:point.y-.5,z:Math.sin(index)*.12,visibility:point.visibility}:null);
-      delete frame.wholebodyLandmarks;
-    }
-  }
   value.previewFrames=[{data:new Uint8Array(100)}];value.previewFps=5;
   return value;
 }
-const evidence = () => ({summary:{version:'motion-observations-v1',duration:4/7.5},images:[{time:.001,imageTime:.001,mimeType:'image/jpeg',dataUrl:'data:image/jpeg;base64,AAAA'}]});
+const evidence = () => ({summary:{version:'motion-observations-3d-v1',duration:4/7.5},images:[{time:.001,imageTime:.001,mimeType:'image/jpeg',dataUrl:'data:image/jpeg;base64,AAAA'}]});
 function setup(t){
   const h={poseCalls:[],imageCalls:[],poseQueue:[],imageQueue:[],released:[]};
   h.analyze=async(file,options)=>{h.poseCalls.push({file,options});options.onProgress({stage:'analyzing',progress:.2,message:'提取测试骨架'});const value=pipeline(options.model);
-    if(options.model==='yolo26')for(const frame of value.frames){frame.landmarks=frame.landmarks.map((point,index)=>[0,11,12,13,14,15,16,23,24,25,26,27,28].includes(index)?point:null);delete frame.wholebodyLandmarks;}
     return h.poseQueue.shift()?.promise??value;};
   h.evidence=async(file,pipeline,observations,options)=>{h.imageCalls.push({file,pipeline,observations,options});return h.imageQueue.shift()?.promise??evidence();};
   globalThis.__chatMotion=h;h.videos=new ChatMotionVideos();
@@ -82,26 +74,28 @@ test('file and metadata limits match motion analysis; persisted descriptors cann
 test('each pose model owns its cache while different exercise choices reuse that model',async t=>{
   const h=setup(t),descriptor=h.videos.add(h.file());
   const standard=await h.videos.prepare(descriptor.id,'squat',{poseModel:'mediapipe-full'});
-  const accurate=await h.videos.prepare(descriptor.id,'pushup',{poseModel:'rtmw'});
-  const yolo=await h.videos.prepare(descriptor.id,'squat',{poseModel:'yolo26'});
+  const accurate=await h.videos.prepare(descriptor.id,'pushup',{poseModel:'mediapipe-heavy'});
+  const quick=await h.videos.prepare(descriptor.id,'squat',{poseModel:'mediapipe-lite'});
   const standardAgain=await h.videos.prepare(descriptor.id,'curl',{poseModel:'mediapipe-full'});
   assert.equal(standard.poseData.format,'mediapipe-world17-full');
   assert.equal(standard.poseData.schemaVersion,6);assert.equal(standard.fullAnalysis.coordinateSpace,'mediapipe-world-3d');
   assert.equal(standard.fullAnalysis.version,'motion-observations-3d-v1');
   assert(standard.poseData.frames.some(frame=>frame.worldLandmarks.some(point=>point&&Math.abs(point[2])>.001)));
-  assert.equal(accurate.poseData.format,'rtmw-body17-full');
-  assert.equal(yolo.poseData.format,'yolo26-body13-full');
-  assert.equal(yolo.poseData.retainedLandmarkIndices.length,13);
+  assert.equal(accurate.poseData.format,'mediapipe-world17-full');
+  assert.equal(quick.poseData.format,'mediapipe-world17-full');
+  assert.equal(quick.poseData.retainedLandmarkIndices.length,17);
   assert.equal(accurate.selectedExerciseId,'pushup');assert.equal(standardAgain.selectedExerciseId,'curl');
   assert.deepEqual(standardAgain.poseData,standard.poseData);
-  assert.deepEqual(h.poseCalls.map(call=>call.options.model),['mediapipe-full','rtmw','yolo26']);
+  assert.deepEqual(h.poseCalls.map(call=>call.options.model),['mediapipe-full','mediapipe-heavy','mediapipe-lite']);
+  assert.equal(accurate.poseData.modelVersion,getMotionPoseModel('mediapipe-heavy').version);
+  assert.equal(quick.poseData.modelVersion,getMotionPoseModel('mediapipe-lite').version);
   assert.equal(h.imageCalls.length,3);
   await assert.rejects(h.videos.prepare(descriptor.id,'squat',{poseModel:'unknown'}),/骨架分析模型/);
 });
 
 test('concurrent selections for different models stay isolated and queued work is cancelled on removal',async t=>{
   const h=setup(t),descriptor=h.videos.add(h.file()),pose=deferred();h.poseQueue.push(pose);
-  const first=h.videos.prepare(descriptor.id,'squat',{poseModel:'rtmw'});
+  const first=h.videos.prepare(descriptor.id,'squat',{poseModel:'mediapipe-heavy'});
   const second=h.videos.prepare(descriptor.id,'pushup',{poseModel:'mediapipe-full'});
   const rejectFirst=assert.rejects(first,{name:'AbortError'}),rejectSecond=assert.rejects(second,{name:'AbortError'});
   await until(()=>h.poseCalls.length===1);h.videos.remove(descriptor.id);
@@ -112,10 +106,10 @@ test('concurrent selections for different models stay isolated and queued work i
 test('simultaneous different-model callers infer independently and receive their chosen format',async t=>{
   const h=setup(t),descriptor=h.videos.add(h.file());
   const [accurate,standard]=await Promise.all([
-    h.videos.prepare(descriptor.id,'pushup',{poseModel:'rtmw'}),
+    h.videos.prepare(descriptor.id,'pushup',{poseModel:'mediapipe-heavy'}),
     h.videos.prepare(descriptor.id,'squat',{poseModel:'mediapipe-full'}),
   ]);
-  assert.equal(accurate.poseData.format,'rtmw-body17-full');assert.equal(standard.poseData.format,'mediapipe-world17-full');
+  assert.equal(accurate.poseData.format,'mediapipe-world17-full');assert.equal(standard.poseData.format,'mediapipe-world17-full');
   assert.equal(h.poseCalls.length,2);assert.equal(h.imageCalls.length,2);
 });
 
@@ -136,7 +130,7 @@ test('prepare reuses real transport across actions and retries without sharing m
   assert.equal(first.poseData.format,'mediapipe-world17-full');assert.equal(h.poseCalls[0].options.model,'mediapipe-full');
   validateMotionPoseData(first.poseData);validateFullMotionAnalysis(first.fullAnalysis);
   assert.equal(h.poseCalls[0].options.sampleFps,7.5);assert.equal(h.poseCalls[0].file,file);
-  assert(!('previewFrames' in h.imageCalls[0].pipeline));assert(!('wholebodyLandmarks' in h.imageCalls[0].pipeline.frames[0]));
+  assert(!('previewFrames' in h.imageCalls[0].pipeline));
   assert.equal(first.keyframes[0].time,.001);assert.equal(first.poseData.frames[0].sourceTime,.001);
   assert(updates.every(value=>typeof value.message==='string'));assert.equal(h.released.length,1);
   first.keyframes[0].data='modified';first.poseData.frames[0].time=100;first.fullAnalysis.quality.reasons.push('mutation');

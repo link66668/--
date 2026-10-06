@@ -1,4 +1,4 @@
-import {toRtmwPipeline} from './helpers/motion-rtmw-pipeline.mjs';
+import {toMediaPipePipeline} from './helpers/motion-mediapipe-pipeline.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp, rm} from 'node:fs/promises';
@@ -16,7 +16,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
 const event = (name, data) => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
 
 function requestBody(frameCount = 12) {
-  const pipeline = toRtmwPipeline({duration: Math.max(1.2, frameCount / 15), width: 1280, height: 720, sampleFps: 15, frames: Array.from({length: frameCount}, (_, index) => ({
+  const pipeline = toMediaPipePipeline({duration: Math.max(1.2, frameCount / 15), width: 1280, height: 720, sampleFps: 15, frames: Array.from({length: frameCount}, (_, index) => ({
     time: index / 15, sourceTime: index / 15, personCount: 1,
     landmarks: Array.from({length: 33}, (_, point) => ({x: Math.fround(0.2 + point / 100), y: Math.fround(0.3 + index / 1000), visibility: Math.fround(0.99)})),
   }))});

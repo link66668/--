@@ -1,7 +1,10 @@
-MediaPipe Tasks Vision 0.10.32 and Pose Landmarker Full float16 v1
+MediaPipe Tasks Vision 0.10.32 and Pose Landmarker Lite, Full and Heavy float16 v1
 Copyright Google LLC. Licensed under Apache License 2.0.
 Sources: https://github.com/google-ai-edge/mediapipe
 https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker
+
+All three unmodified Pose Landmarker task bundles use the same Tasks Vision
+runtime and output 33 image landmarks and 33 estimated world landmarks.
 
 Unmodified runtime and model assets are served locally. Pinned download URLs,
 npm integrity and SHA-256 hashes are recorded in manifest.json. Restore and

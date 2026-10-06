@@ -29,19 +29,28 @@ function reliablePoint(point) {
   if (tuple && (![3, 4].includes(point.length) || !Number.isInteger(missing) || missing < 0 || missing > 7)) return false;
   const x = tuple ? point[0] : point.x, y = tuple ? point[1] : point.y;
   const visibility = tuple ? point[2] : point.visibility;
-  // This is the RTMW score clamped for tracking, not a visibility probability.
+  // Image visibility is only a gate; motion evidence also requires world XYZ.
   return !(missing & 7) && finite(x) && finite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1 && finite(visibility) && visibility >= 0.55 && visibility <= 1;
 }
 
+function reliableWorldPoint(point) {
+  if (!point || typeof point !== 'object') return false;
+  const tuple = Array.isArray(point), missing = tuple && point.length === 5 ? point[4] : 0;
+  if (tuple && (![4, 5].includes(point.length) || !Number.isInteger(missing) || missing < 0 || missing > 15)) return false;
+  const x = tuple ? point[0] : point.x, y = tuple ? point[1] : point.y, z = tuple ? point[2] : point.z;
+  const visibility = tuple ? point[3] : point.visibility;
+  return !(missing & 15) && [x, y, z].every(finite) && finite(visibility) && visibility >= .55 && visibility <= 1;
+}
+
 function eligibleFrame(frame, {hasTracking, trackId, duration}) {
-  if (!frame || !timeIsValid(frame.time) || finite(duration) && frame.time > duration || !Array.isArray(frame.landmarks) || frame.landmarks.length !== 33) return false;
+  if (!frame || !timeIsValid(frame.time) || finite(duration) && frame.time > duration || !Array.isArray(frame.landmarks) || frame.landmarks.length !== 33 || !Array.isArray(frame.worldLandmarks) || frame.worldLandmarks.length !== 33) return false;
   const tracking = frame.subjectTracking;
   if (tracking || hasTracking) {
     if (tracking?.status !== 'locked' || !finite(tracking.confidence) || tracking.confidence < 0.65 || tracking.confidence > 1 || typeof tracking.trackId !== 'string' || !tracking.trackId || tracking.trackId !== trackId) return false;
   } else if (frame.personCount !== undefined && frame.personCount !== 1) return false;
   // Face/finger visibility alone cannot support an exercise observation. This
   // is only a minimum data gate; the prompt must use the relevant visible joints.
-  return bodyJoints.filter(index => reliablePoint(frame.landmarks[index])).length >= 3;
+  return bodyJoints.filter(index => reliablePoint(frame.landmarks[index]) && reliableWorldPoint(frame.worldLandmarks[index])).length >= 3;
 }
 
 function validAnalysisPath(path, analysis) {

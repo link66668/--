@@ -17,7 +17,7 @@
 | 指导教师 | 待填写 |
 | 提交日期 | 待填写 |
 
-文档版本：2.0；内容核对日期：2026-10-06；代码基线：Git `277ecaa`。提交日期与内容核对日期是不同字段。
+文档版本：2.1；内容核对日期：2026-10-07；历史基线：Git `277ecaa`，骨架分析章节按当前工作区的 MediaPipe 三档重构更新。提交日期与内容核对日期是不同字段。
 
 本稿依据 [设计文档模板-2026年.doc](设计文档模板-2026年.doc) 的封面、声明和七章结构编写，用于说明作品需求、设计思路、原型、实现、平台与开发进度。模板中的“绿色星球”、Symbian 示例与虚构人员不沿用；模板封面的 Android 示例改为项目实际交付状态。Markdown 阶段不承诺 Word 的页码、字号和分页，后续排版应使用原模板。
 
@@ -89,7 +89,7 @@
 
 ### （3）最新进度与 Git 演进
 
-下表按仓库历史选择能够解释设计变化的提交。同日可包含多次开发和合并，合并提交不重复计为新增功能。
+下表为历史演进，已移除引擎的提交仅用于追溯，不表示当前仍支持。当前工作区已统一为 MediaPipe Lite / Full / Heavy；下表按仓库历史选择能够解释设计变化的提交。同日可包含多次开发和合并，合并提交不重复计为新增功能。
 
 | 时间 | 提交 | 实际变更范围 | 当前设计意义 |
 | --- | --- | --- | --- |
@@ -121,7 +121,7 @@
 
 **操作可行性。** 七个主入口覆盖日常使用，用户无需了解协议或骨架节点即可建档、排课和记餐。复杂行为分阶段呈现：餐食先估算再确认，训练先编辑再应用，视频先识别再确认动作。手机采用响应式布局与可触摸控件；页面切换、取消和重试保留必要状态，减少重复填写。
 
-**经济可行性。** 应用不要求自建生成式模型服务器，主服务运行组件少，默认搜索无需单独密钥；用户仍可能承担服务器、存储、带宽及模型调用费用。RTMW 大资产的首次下载、社区媒体增长和视觉 AI 图片调用是主要成本来源。当前没有已验证的年度预算、付费转化或盈利数据，不填写虚构金额。
+**经济可行性。** 应用不要求自建生成式模型服务器，主服务运行组件少，默认搜索无需单独密钥；用户仍可能承担服务器、存储、带宽及模型调用费用。骨架模型和共享运行库的首次下载、社区媒体增长和视觉 AI 图片调用是主要成本来源。当前没有已验证的年度预算、付费转化或盈利数据，不填写虚构金额。
 
 **开发与维护可行性。** 业务纯函数、协议适配器、姿态模型、界面和存储分开，Git 可追溯关键变更。既有测试可支撑局部修改，专项文档记录资产恢复、接口和验收。维护风险主要是主界面规模增大、外部模型能力变化以及浏览器差异，因此要维持契约校验和按模块回归。
 
@@ -154,7 +154,7 @@
 | FR-06 | 饮食管理 | 自动日类型、估算修订、确认入账、食谱替换；份量倍率正确、不重复记餐 |
 | FR-07 | 两周反馈 | 默认自动调整下一周期，异常和历史日期使用统一规则 |
 | FR-08 | 知识与 3D | 五面板、25 动作、肌肉点选与演示控制；AI 通过工具选择卡片 |
-| FR-09 | 视频分析 | 三类骨架模型，默认标准；先识别、可修改、确认后才评价 |
+| FR-09 | 视频分析 | MediaPipe 三档，默认 Full；统一 17 点三维证据；先识别、可修改、确认后才评价 |
 | FR-10 | 评价与复用 | 有问题则具体纠正，否则统一文案；同视频同模型复用分析 |
 | FR-11 | 成就和复盘 | 核验有效训练，展示成就与阶段趋势 |
 | FR-12 | 社区 | 图文视频、评论、关注赞藏、主页、私信群聊、通知举报 |
@@ -296,7 +296,7 @@ AI 持续循环默认首次安排未来 84 天；手动导入按所选日期所�
 
 | 层次 | 用途 | 实现 |
 | --- | --- | --- |
-| 骨架模型 | 每个采样画面中的人物和关节点 | 浏览器 MediaPipe Full、RTMW-L、YOLO26s-Pose |
+| 骨架模型 | 每个采样画面中的人物和关节点 | 浏览器 MediaPipe Lite、Full、Heavy，共用适配器 |
 | 动作 AI 模型 | 结合骨架、测量、截图识别与评价 | 用户配置的 `motion` 图片模型 |
 | 3D 教学模型 | 预制动作与解剖结构演示 | Three.js 精细人体模型，与视频推理独立 |
 
@@ -306,13 +306,13 @@ AI 持续循环默认首次安排未来 84 天；手动导入按所选日期所�
 
 | 档位 / ID | 原生输出 | 当前身体证据 | 坐标与角度 |
 | --- | --- | --- | --- |
-| 标准 / `mediapipe-full`，默认 | Full 33 点及世界坐标 | 17 个主要身体点，二维和三维并存 | `worldLandmarks` 米制 x/y/z，髋中点为原点；三维角度 |
-| 高精度 / `rtmw` | RTMW-L WholeBody 133 点 | 17 个主要身体点 | 二维点和按画面尺寸换算的投影角度 |
-| YOLO26 / `yolo26` | YOLO26s-Pose COCO 17 点 | 13 个主要身体点 | 二维点与投影角度，独立完成检测与姿态 |
+| 快速 / `mediapipe-lite` | Lite 33 点及世界坐标 | 17 个主要身体点 | 米制 x/y/z 与三维角度；低性能设备和快速分析 |
+| 标准 / `mediapipe-full`，默认 | Full 33 点及世界坐标 | 同一组 17 个身体点 | 米制 x/y/z 与三维角度；日常默认 |
+| 高精度 / `mediapipe-heavy` | Heavy 33 点及世界坐标 | 同一组 17 个身体点 | 米制 x/y/z 与三维角度；精度更高，但分析时间更长 |
 
-17 个身体点为鼻、双侧肩、肘、腕、髋、膝、踝、脚跟及前脚掌。YOLO26 保留鼻及双侧六组关节，没有脚跟和前脚掌；不借其他模型补点。默认不传脸部细节和手指。兼容数组中的 33 个槽位不代表 33 个有效点，缺失保持 `null`。
+17 个身体点为鼻、双侧肩、肘、腕、髋、膝、踝、脚跟及前脚掌。三档均由同一套 Pose Landmarker 结构抽取身体点，不传面部细节和手指。33 槽位保留原生节点索引，未选入的节点与缺失点保持 `null`。
 
-标准档深度和尺度是单目模型估计，躯干倾角未经重力标定；三维点缺失时保持空测量，不切换为二维角度。RTMW-L、YOLO26 不补造 z 坐标。GPU 不可用时采用所选模型的 CPU 路径。
+三档的深度和尺度都是单目模型估计，躯干倾角未经重力标定；三维点缺失时保持空测量，不切换为二维角度。GPU 不可用时采用所选模型的 CPU 路径。
 
 ##### 8.3 默认流程
 
@@ -349,7 +349,7 @@ sequenceDiagram
 
 本机保留全段采样骨架及逐帧测量。默认 AI 输入为代表帧、对应角度、覆盖全段的窗口统计和最多 6 张截图；骨架证据 24,000 字符，总文本 32,000 字符。短片可包含全部采样帧，长片按时间、变化及极值抽取，因此本机全段分析不等于 AI 收到每帧原始数据。
 
-传输格式：MediaPipe `schemaVersion:6 / mediapipe-world17-full`，RTMW `schemaVersion:3 / rtmw-body17-full`，YOLO26 `schemaVersion:5 / yolo26-body13-full`。三维点为 `[x,y,z,visibility]`，坐标和置信度独立。旧格式、显式完整分包等模式仍兼容，默认界面使用识别后的 guided 评价。
+传输格式统一为 `schemaVersion:6 / mediapipe-world17-full`。三维点为 `[x,y,z,visibility]`，坐标和置信度独立；测量统一为 `motion-observations-3d-v1`。三档只改变权重和模型版本，跟踪、测量、证据抽样、识别、确认与评价流程相同。旧引擎专属 schema、资产及兼容分支全部移除。显式完整分包仍可使用统一 MediaPipe 三维数据，默认界面使用识别后的 guided 评价。
 
 ##### 8.5 结果、保存和生命周期
 
@@ -365,7 +365,7 @@ sequenceDiagram
 | --- | --- |
 | [motion-models.js](public/motion-models.js) | 模型目录、默认值与超时 |
 | [motion-worker.js](public/motion-worker.js)、[motion-source-worker.js](public/motion-source-worker.js) | 本机视频、推理任务与生命周期 |
-| [motion-mediapipe.js](public/motion-mediapipe.js)、[motion-rtmw.js](public/motion-rtmw.js)、[motion-yolo26.js](public/motion-yolo26.js) | 三个模型适配器 |
+| [motion-mediapipe.js](public/motion-mediapipe.js) | 三档共用的 Pose Landmarker 适配器，按档位选择权重 |
 | [motion-analysis.js](public/motion-analysis.js)、[motion-pose-data.js](public/motion-pose-data.js) | 测量、坐标与传输 |
 | [motion-recognize.mjs](server/motion-recognize.mjs) | 识别提示、目录匹配和响应校验 |
 | [motion-coach-guided.mjs](server/motion-coach-guided.mjs) | 确认后评价提示、证据预算与约束 |
@@ -374,7 +374,7 @@ sequenceDiagram
 | [motion-view.js](public/motion-view.js)、[chat-motion-confirm.js](public/chat-motion-confirm.js) | 页面状态及用户确认 |
 | [chat-motion.mjs](server/chat-motion.mjs) | 聊天任务、确认校验、保存和幂等 |
 
-详见 [视频动作评估](docs/视频动作评估.md)、[MediaPipe 三维](docs/MediaPipe三维接入.md)、[RTMW-L](docs/RTMW-L接入.md)、[YOLO26](docs/YOLO26接入.md)。
+详见 [视频动作评估](docs/视频动作评估.md)、[MediaPipe 三维](docs/MediaPipe三维接入.md)、[MediaPipe 三档](docs/MediaPipe三档接入.md)。
 
 #### 9. 成就和阶段复盘
 
@@ -521,10 +521,7 @@ flowchart LR
 | IndexedDB、Service Worker、PWA manifest | 缓存、队列、草稿和应用壳 | Service Worker/完整 PWA 安装需安全上下文，IndexedDB 保存本机数据；不等于原生 EXE/APK |
 | Web Workers、WebCodecs 与视频接口 | 本机解码与姿态任务 | 降低主界面阻塞，提供兼容路径 |
 | MP4Box 2.4.1 | MP4 解封装与顺序帧读取协作 | 配合浏览器视频解码，不能替代所有编码的解码器 |
-| MediaPipe Tasks Vision 0.10.32、Full float16 v1 | 标准默认骨架 | 33 点与估计世界坐标，本地资产按需加载 |
-| ONNX Runtime Web 1.30.0、WebGPU/WASM | RTMW、YOLO26 推理 | GPU 可用时加速，否则同模型 CPU |
-| RTMW-L 384×288、YOLOX-tiny 检测器 | 高精度姿态路径 | 原生 133 点，默认业务使用身体子集 |
-| YOLO26s-Pose 640 ONNX | 独立 YOLO26 路径 | COCO 17 点，权重约 40 MiB，版本和哈希有清单 |
+| MediaPipe Tasks Vision 0.10.32、Lite / Full / Heavy float16 v1 | 快速、标准默认、高精度骨架 | 同一套 33 点与估计世界坐标，17 点身体证据；选中权重按需加载 |
 | FFmpeg WASM 0.12.10 | 软件解码回退 | 本地按需加载，不要求服务器安装 Python/CUDA |
 | Three.js 0.186.0、esbuild | 3D 渲染及子项目构建 | 服务使用预构建资源，修改源码再构建 |
 | Marked 18.0.14、DOMPurify 3.4.16 | Markdown 解析和清理 | 解析器不承担安全清理 |
@@ -625,7 +622,7 @@ npm start
 
 ##### 资源和备份
 
-模型和 3D 资源从本服务按需下载，不依赖运行时 CDN。RTMW-L 大权重不随 Git 提交，新克隆需按接入文档恢复；`npm run motion:assets` 核对资源。
+模型和 3D 资源从本服务按需下载，不依赖运行时 CDN。三档权重与运行库统一通过 `scripts/setup-motion-assets.mjs` 恢复及校验；`npm run motion:assets` 核对资源。
 
 2 核 4 GB 起始部署需关注模型首次下载、社区文件增长、AI 并发和 SQLite 写入。浏览器推理速度不能由服务器 CPU 数推导。代理需支持 SSE 不缓冲、足够请求体和超时、媒体 Range 请求。
 
@@ -658,20 +655,20 @@ npm start
 | FR-08 | 目录与演示一致、工具卡片、实例复用 | `tests/visuals.test.mjs`、`model-viewer.test.mjs`、`scripts/qa-model-gallery.mjs` |
 | FR-09、10 | 确认前不评价、可修改、复用、未知与文案 | `tests/motion-recognize-api.test.mjs`、`motion-view-guided.test.mjs`、`motion-verdict.test.mjs` |
 | FR-09、10 | 聊天确认、取消、导航、幂等重放 | `tests/chat-motion-registry.test.mjs`、`npm run qa:chat:motion`、`npm run qa:motion:navigation` |
-| FR-09 | 三维语义，二维模型不补深度/脚点 | `tests/motion-mediapipe-world-transport.test.mjs`、`motion-yolo-transport.test.mjs` |
+| FR-09 | 三档统一三维语义、17 点身体证据，缺失深度不补造 | `tests/motion-mediapipe-world-transport.test.mjs`、`scripts/qa-motion-mediapipe.mjs` |
 | FR-11 | 未来和无效完成不授予、周期正确 | `tests/achievement-rules.test.mjs`、`achievement-http.test.mjs` |
 | FR-12 | 媒体授权、图片、群权限、通知和举报 | `tests/community-*.test.mjs`、`npm run qa:community` 及专项脚本 |
 
 本次文档更新核对代码、Git、模板结构和链接，不重新运行全套业务测试。代码变更按模块选择检查，跨域修改或发布前才扩大范围；`npm test` 和 `npm run check` 不要求每次文档修改执行。
 
-既有新动作流程验收用真实 MediaPipe/RTMW 与受控 AI，覆盖确认、修改、未知、复用、导航及保存。历史真实 AI 小样本保留在 [视频动作评估](docs/视频动作评估.md)，不能当作新流程识别准确率。浏览器证据按日期见 [浏览器验证](docs/浏览器验证.md)。
+当前动作流程专项使用真实 MediaPipe 三档与受控 AI，覆盖确认、修改、未知、复用、导航及保存。历史真实 AI 小样本保留在 [视频动作评估](docs/视频动作评估.md)，不能当作新流程识别准确率。浏览器证据按日期见 [浏览器验证](docs/浏览器验证.md)。
 
 #### 7. 实现难点及处理
 
 | 难点 | 采用的处理 | 验证重点 |
 | --- | --- | --- |
 | 三种 AI 协议的消息和工具格式不同 | 统一业务契约，由适配层转换原生消息并保留必要工具关联 | 同一工具在三协议中能继续回答，失败不伪造回执 |
-| 多模型节点、置信度和坐标不一致 | 显式模型标识与 schema，二维/三维分开，缺失保持空值 | 不造 z、脚点或置信度，不混用不同人的坐标 |
+| 不同档位的数据一致性 | 同一适配器、节点集合、三维 schema 和测量流程；模型版本区分档位 | 不跨档复用缓存、不补造缺失深度、不混用不同人的坐标 |
 | 手机编码、HDR 和旋转差异 | 浏览器解码优先，本地 WASM 逐帧回退 | 图像、骨架、时间和回放保持对齐 |
 | 长视频超出 AI 上下文 | 代表帧、窗口统计和最多六图，保留覆盖元信息 | AI 引用确为已发送证据，不声称逐帧完整观看 |
 | 动作自动识别可能错误 | 识别与评价分开，人工确认后才评价 | 确认前无评价/报告，修改动作复用数据 |
@@ -685,7 +682,7 @@ npm start
 
 1. **业务记录与自然语言协同。** 用户可通过页面或对话完成训练、日程和饮食管理，二者共享真实记录、计算口径和版本控制。
 2. **先确认动作再纠正。** AI 提供动作建议，用户能纠正分类，确认后才评价，减少围绕错误动作给建议的机会。
-3. **三条骨架路径与明确三维语义。** 默认 MediaPipe 三维兼顾身体证据，高精度与 YOLO26 作为独立选择；模型差异在节点和坐标契约中明确表达。
+3. **同一骨架流程的三档选择。** Lite、Full、Heavy 兼顾不同设备与分析需求；Full 默认，三档统一提供 17 点三维身体证据，减少多引擎节点和坐标契约差异。
 4. **终端承担视频计算。** 将解码和姿态任务放在用户设备，服务器负责业务与转发，有利于在小规模服务器上部署。
 5. **教学演示与真实视频复盘互补。** 3D 用于讲解，视频用于观察个人训练，两者职责清晰，不把预制动画当成用户动作重建。
 6. **渐进营养反馈。** 初始公式估算与阶段体重反馈相连，保留依据、手动调整和异常处理，不以一次波动大幅修改目标。
@@ -725,10 +722,7 @@ npm start
 
 | 资源 | 仓库记录的许可或来源 | 本地依据 |
 | --- | --- | --- |
-| MediaPipe Tasks Vision / Full | Apache-2.0 | [依赖说明](public/vendor/README.md)、[清单](public/vendor/mediapipe/manifest.json) |
-| RTMW-L / YOLOX | Apache-2.0 | [清单](public/vendor/rtmw/manifest.json) |
-| ONNX Runtime Web | MIT | [清单](public/vendor/onnxruntime/manifest.json) |
-| YOLO26s-Pose | AGPL-3.0 | [清单](public/vendor/yolo26/manifest.json)、[许可证](public/vendor/yolo26/LICENSE) |
+| MediaPipe Tasks Vision / Lite、Full、Heavy | Apache-2.0 | [依赖说明](public/vendor/README.md)、[清单](public/vendor/mediapipe/manifest.json) |
 | FFmpeg WASM | 包含 GPL/LGPL 等组件说明 | [NOTICE](public/vendor/ffmpeg/NOTICE.txt) 与随包许可证 |
 | Marked / DOMPurify | MIT；Apache-2.0 或 MPL-2.0 | [浏览器依赖](public/vendor/README.md) |
 | 人体解剖资产 | Z-Anatomy / BodyParts3D，保留 CC BY-SA 等来源说明 | [解剖来源](精细模型与动作开发/assets/ANATOMY-SOURCE.md) |
@@ -750,7 +744,7 @@ npm start
 | 方向 | 当前边界 | 下一阶段 |
 | --- | --- | --- |
 | 动作纠正 | 辅助试验版，可能误判 | 固定数据集和人工标签，分别评价识别、误报、漏报与证据 |
-| 三维姿态 | 标准档为估计世界坐标，其余二维 | 多视角、遮挡和设备条件验证 |
+| 三维姿态 | 三档均为估计世界坐标、17 点身体证据 | 多视角、遮挡和设备条件验证 |
 | 设备与容量 | 终端性能各异，服务器未形成压测承诺 | 在目标服务器与主流终端验收 |
 | 原生入口 | 网页/PWA 已实现 | 确定 EXE/APK 方案并验证文件、视频和同步 |
 | 社区二期 | 访客、分享卡片、话题聚合、转码未实现 | 按实际需求分阶段实现 |
@@ -766,7 +760,7 @@ npm start
 | 部署与备份 | [部署与接口](docs/部署与接口.md) |
 | AI | [对话](docs/AI对话.md)、[供应商](docs/AI供应商.md)、[联网](docs/联网搜索.md) |
 | 训练营养 | [训练日程](docs/训练日程.md)、[饮食反馈](docs/饮食反馈校准.md)、[算法](docs/算法来源.md) |
-| 视频 | [动作评估](docs/视频动作评估.md)、[MediaPipe 3D](docs/MediaPipe三维接入.md)、[RTMW](docs/RTMW-L接入.md)、[YOLO26](docs/YOLO26接入.md) |
+| 视频 | [动作评估](docs/视频动作评估.md)、[MediaPipe 3D](docs/MediaPipe三维接入.md)、[MediaPipe 三档](docs/MediaPipe三档接入.md) |
 | 教学 | [知识大全](docs/知识大全.md)、[知识维护](docs/知识维护.md)、[动作接入](docs/动作接入.md)、[新增动作](精细模型与动作开发/新增动作指南.md) |
 | 社区 | [社区设计](docs/社区功能设计.md) |
 | 验收 | [功能验收](docs/功能验收.md)、[浏览器验证](docs/浏览器验证.md) |
@@ -775,6 +769,6 @@ npm start
 
 ## 七、致谢
 
-本项目的实现参考了原健身 Excel 资料，并使用 Node.js、SQLite、Three.js、MediaPipe、OpenMMLab、ONNX Runtime、Ultralytics 及其他开源工具、预训练权重和解剖资产。感谢相关维护者提供公开资料、实现和许可说明；各组件归属以仓库保留的来源文件为准。
+本项目的实现参考了原健身 Excel 资料，并使用 Node.js、SQLite、Three.js、MediaPipe 及其他开源工具、预训练权重和解剖资产。感谢相关维护者提供公开资料、实现和许可说明；各组件归属以仓库保留的来源文件为准。
 
 指导教师、提供实际试用反馈的人员及其他支持方：**待填写**。团队核实后补充姓名、机构与真实支持内容，不虚构调研、合作、审核或指导经历。

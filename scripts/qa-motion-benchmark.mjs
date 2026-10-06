@@ -36,7 +36,7 @@ for(const filename of (await readdir(folder)).filter(name=>/\.mp4(?:\.(?:webcode
   observationVersion:report.version,quality:report.quality,measurements:report.measurements});
 }
 const output={generatedAt:new Date().toISOString(),
- caveat:'Replay of saved pose data checks frame coverage and objective image-plane measurements only. It does not call an AI provider or test action recognition, movement quality, or correction accuracy. Missing or uncertain landmarks remain null.',rows};
+ caveat:'Replay of saved pose data checks frame coverage and objective three-dimensional measurements only. It does not call an AI provider or test action recognition, movement quality, or correction accuracy. Missing or uncertain landmarks remain null.',rows};
 await writeFile(join(folder,'benchmark-results.json'),JSON.stringify(output,null,2));
 console.table(rows.map(({file,frames,elapsedMs,quality})=>({file,frames,measuredFrames:quality.validFrames,usableRatio:quality.usableRatio,seconds:elapsedMs===null?null:Math.round(elapsedMs/100)/10,reasons:quality.reasons.join(',')})));
 console.log(`Saved ${join(folder,'benchmark-results.json')}`);

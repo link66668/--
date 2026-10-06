@@ -313,7 +313,7 @@ export function decodePreparedMotion(source, onFrame, options = {}) {
 // Set trimBeforeScale:false only to compare the original prefix algorithm.
 // Diagnostic timing fields are for engineering measurements, not user claims.
 // The pinned FFmpeg core has no Asyncify support, so a device write cannot
-// suspend for an ONNX inference Promise. Decode a bounded batch, then await its
+// suspend for a pose inference Promise. Decode a bounded batch, then await its
 // consumers in order. Replaying the original PTS/fps filters preserves VFR and
 // edit-list sampling exactly. This costs repeated source decoding on formats
 // which need the software fallback, but never buffers a whole raw video.

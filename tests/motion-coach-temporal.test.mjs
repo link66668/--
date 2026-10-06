@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {toRtmwPipeline} from './helpers/motion-rtmw-pipeline.mjs';
+import {toMediaPipePipeline} from './helpers/motion-mediapipe-pipeline.mjs';
 import {analyzeMotion} from '../public/motion-analysis.js';
 import {buildMotionPoseData, buildFullMotionAnalysis} from '../public/motion-pose-data.js';
 import {compactMotionAnalysis, mergeCoachAssessment} from '../public/motion-contract.js';
@@ -12,7 +12,7 @@ const provider = {id: 'temporal-fixture', name: 'Temporal fixture', protocol: 'o
 const response = output => Response.json({choices: [{message: {content: JSON.stringify(output)}, finish_reason: 'stop'}]});
 function fixture(frameCount = 150) {
   const duration = frameCount / 15;
-  const pipeline = toRtmwPipeline({duration, width: 1920, height: 1080, sampleFps: 15, sourceFps: 30,
+  const pipeline = toMediaPipePipeline({duration, width: 1920, height: 1080, sampleFps: 15, sourceFps: 30,
     frames: Array.from({length: frameCount}, (_, frameIndex) => ({time: frameIndex / 15, personCount: 1,
       landmarks: Array.from({length: 33}, (_, pointIndex) => ({
         x: Math.fround(.25 + pointIndex / 130 + Math.sin(frameIndex / 8 + pointIndex) * .05),
@@ -75,7 +75,7 @@ test('short clips retain every source frame and missing points remain unknown', 
 });
 
 test('numeric compaction cannot turn out-of-image or low-response landmarks into reliable points', () => {
-  const input = fixture(20);
+  const input = fixture(12);
   input.poseData.frames[0].landmarks[11] = [-.000001, 1.000001, .5496];
   input.poseData.frames[1].landmarks[11] = [.123456789, .987654321, .55000000001];
   const {evidence} = buildMotionTemporalEvidence(input);
@@ -105,7 +105,7 @@ test('window statistics preserve late motion, exact values and valid global sour
 });
 
 test('compact guided numbers declare approximation without promoting missing or unreliable observations', () => {
-  const input = fixture(20);
+  const input = fixture(12);
   input.poseData.frames[0].landmarks[11] = [-.000001,1.000001,.5499999];
   input.poseData.frames[1].landmarks[11] = [.123456789,.987654321,.55000001];
   input.poseData.frames[2].landmarks[11] = [null,.2,.9,1];
@@ -134,7 +134,7 @@ test('compact 120-second evidence remains bounded with full source windows and d
   const input = fixture(1800);
   const {evidence} = buildMotionTemporalEvidence(input,{maxChars:24000,compactNumbers:true,minFrames:12});
   assert(JSON.stringify(evidence).length<=24000);
-  assert(evidence.sourceFrameIndices.length>=24);
+  assert(evidence.sourceFrameIndices.length>=12&&evidence.sourceFrameIndices.length<=64);
   assert.equal(evidence.sourceFrameIndices[0],0);
   assert.equal(evidence.sourceFrameIndices.at(-1),1799);
   assert.equal(evidence.windows.reduce((sum,window)=>sum+window.sourceFrameCount,0),1800);
@@ -144,8 +144,9 @@ test('compact 120-second evidence remains bounded with full source windows and d
 test('compact evidence can reduce below the legacy 24-frame floor without dropping source coverage', () => {
   const input = fixture(900);
   for (const frame of input.poseData.frames) frame.subjectTracking = {status:'locked',trackId:'x'.repeat(80),confidence:.9,bbox:{xMin:.1,yMin:.1,xMax:.9,yMax:.9}};
-  const {evidence} = buildMotionTemporalEvidence(input,{maxChars:16000,compactNumbers:true,minFrames:12});
-  assert(JSON.stringify(evidence).length<=16000);
+  assert.throws(() => buildMotionTemporalEvidence(input,{maxChars:16000,compactNumbers:true,minFrames:12}), error => error.status === 413);
+  const {evidence} = buildMotionTemporalEvidence(input,{maxChars:24000,compactNumbers:true,minFrames:12});
+  assert(JSON.stringify(evidence).length<=24000);
   assert(evidence.frames.length>=12&&evidence.frames.length<24);
   assert.equal(evidence.sourceFrameIndices[0],0);
   assert.equal(evidence.sourceFrameIndices.at(-1),899);
@@ -153,8 +154,10 @@ test('compact evidence can reduce below the legacy 24-frame floor without droppi
 });
 
 test('a smaller budget remains bounded while summarizing every source measurement', () => {
-  const input = fixture(1800), {evidence} = buildMotionTemporalEvidence(input, {maxChars: 20000});
-  assert(JSON.stringify(evidence).length <= 20000);
+  const input = fixture(1800);
+  assert.throws(() => buildMotionTemporalEvidence(input, {maxChars: 20000}), error => error.status === 413);
+  const {evidence} = buildMotionTemporalEvidence(input, {maxChars: 48000});
+  assert(JSON.stringify(evidence).length <= 48000);
   assert.equal(evidence.sourceFrameIndices[0], 0);
   assert.equal(evidence.sourceFrameIndices.at(-1), 1799);
   assert.equal(evidence.windows.reduce((sum, window) => sum + window.sourceFrameCount, 0), 1800);

@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
+import { MOTION_POSE_MODELS } from '../public/motion-models.js';
 
 const verifyOnly = process.argv.includes('--verify');
 const digest = (buffer, algorithm = 'sha256', encoding = 'hex') => createHash(algorithm).update(buffer).digest(encoding);
@@ -26,6 +27,12 @@ function packageFiles(tgz) {
 for (const directory of ['mp4box', 'mediapipe']) {
  const root = new URL(`../public/vendor/${directory}/`, import.meta.url);
  const manifest = JSON.parse(await readFile(new URL('manifest.json', root), 'utf8'));
+ if (directory === 'mediapipe') {
+  const tasks = manifest.files.filter(item => item.path.endsWith('.task'));
+  if (tasks.length !== MOTION_POSE_MODELS.length || MOTION_POSE_MODELS.some(model => !tasks.some(item => item.path === model.assetPath))) {
+    throw new Error('MediaPipe model catalog and pinned asset manifest must contain the same three task bundles');
+  }
+ }
  let packageContent;
  for (const item of manifest.files) {
   const target = new URL(item.path, root);

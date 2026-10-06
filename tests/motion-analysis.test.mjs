@@ -13,13 +13,13 @@ function pose({width = 1000, height = 1000, scale = 1, mirror = false} = {}) {
       landmarks[indices[n] + side] = {x: (mirror ? width - x : x) / width, y: y / height, visibility: 0.99};
     });
   }
-  return {time: 0, landmarks};
+  return {time: 0, landmarks, worldLandmarks: landmarks.map(point => point && ({x: point.x * width / 1000, y: point.y * height / 1000, z: 0, visibility: point.visibility}))};
 }
 const options = {width: 1000, height: 1000};
 const close = (actual, expected, tolerance = 1e-6) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} != ${expected}`);
 const values = row => [...Object.values(row.left), ...Object.values(row.right)];
 function assertOnlyObservations(report) {
-  assert.deepEqual(Object.keys(report).sort(), ['measurements', 'quality', 'version']);
+  assert.deepEqual(Object.keys(report).sort(), ['coordinateSpace', 'measurements', 'quality', 'version']);
   assert.deepEqual(Object.keys(report.quality).sort(), ['reasons', 'sourceFps', 'targetCoverage', 'totalFrames', 'usableRatio', 'validFrames']);
   for (const row of report.measurements) {
     assert.deepEqual(Object.keys(row).sort(), ['frameIndex', 'left', 'right', 'time']);
@@ -32,7 +32,7 @@ test('the analysis contract contains measurements and data quality without local
   assert.equal(analyzeMotion, namedAnalyzeMotion);
   const report = analyzeMotion([pose()], options);
   assert.equal(report.version, MOTION_OBSERVATION_VERSION);
-  assert.equal(report.version, 'motion-observations-v1');
+  assert.equal(report.version, 'motion-observations-3d-v1');
   assertOnlyObservations(report);
   assert.equal(report.quality.totalFrames, 1);
   assert.equal(report.quality.validFrames, 1);
@@ -66,7 +66,7 @@ test('mirror, uniform scale and portrait or landscape dimensions preserve physic
   }
 });
 
-test('torso lean is an unsigned projection to image vertical and does not assert spinal posture', () => {
+test('torso lean is an unsigned 3D angle to model Y and does not assert spinal posture', () => {
   for (const [shoulder, hip, expected] of [
     [[200, 100], [200, 400], 0],
     [[200, 200], [400, 400], 45],
@@ -75,7 +75,7 @@ test('torso lean is an unsigned projection to image vertical and does not assert
     [[200, 400], [200, 100], 0],
   ]) {
     const frame = pose();
-    [shoulder, hip].forEach(([x, y], index) => {frame.landmarks[index ? 23 : 11] = {x: x / 1000, y: y / 1000, visibility: 1};});
+    [shoulder, hip].forEach(([x, y], index) => {frame.landmarks[index ? 23 : 11] = {x: x / 1000, y: y / 1000, visibility: 1}; frame.worldLandmarks[index ? 23 : 11] = {x: x / 1000, y: y / 1000, z: 0, visibility: 1};});
     close(analyzeMotion([frame], options).measurements[0].left.torsoLean, expected);
   }
 });
@@ -95,7 +95,7 @@ test('occluded joints null only the measurements that require them and retain th
   close(cropped.right.hipAngle, 180);
 });
 
-test('mapped RTMW visibility must be present and reliable to produce angles', () => {
+test('MediaPipe image visibility must be present and reliable to produce angles', () => {
   close(analyzeMotion([pose()], options).measurements[0].left.elbowAngle, 90);
   for (const invalid of [{visibility: undefined}, {visibility: NaN}, {visibility: 0.4}, {visibility: 1.2}]) {
     const frame = pose();
@@ -115,6 +115,8 @@ test('out-of-frame or invalid coordinates and degenerate segments stay null rath
   const frame = pose();
   frame.landmarks[13] = {...frame.landmarks[11]};
   frame.landmarks[23] = {...frame.landmarks[11]};
+  frame.worldLandmarks[13] = {...frame.worldLandmarks[11]};
+  frame.worldLandmarks[23] = {...frame.worldLandmarks[11]};
   const row = analyzeMotion([frame], options).measurements[0];
   assert.equal(row.left.elbowAngle, null);
   assert.equal(row.left.shoulderAngle, null);

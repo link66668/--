@@ -19,7 +19,7 @@ test('model text and report IDs cannot inject active markup into motion result c
 });
 
 test('chat cards show the actual selected skeleton model while old receipts stay readable',()=>{
- for(const [poseModel,label] of [['rtmw','高精度 · RTMW-L'],['mediapipe-full','标准 · MediaPipe Full'],['yolo26','YOLO26 · YOLO26s-Pose']]){
+ for(const [poseModel,label] of [['mediapipe-lite','快速 · MediaPipe Lite'],['mediapipe-full','标准 · MediaPipe Full'],['mediapipe-heavy','高精度 · MediaPipe Heavy']]){
   const receipt=compactChatMotionResult({name:'assess_motion_video',ok:true,poseModel,reportId:'motion:123',record:{}});
   assert.equal(receipt.poseModel,poseModel);assert(renderChatMotionResult(receipt).includes(label));
  }

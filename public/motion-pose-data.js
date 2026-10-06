@@ -5,43 +5,17 @@ export const MOTION_LANDMARK_NAMES = Object.freeze(['nose', 'left_eye_inner', 'l
 export const MOTION_POINT_FIELDS = Object.freeze(['x', 'y', 'visibility']);
 export const MOTION_WORLD_POINT_FIELDS = Object.freeze(['x', 'y', 'z', 'visibility']);
 export const MOTION_BODY_LANDMARK_INDICES = Object.freeze([0,11,12,13,14,15,16,23,24,25,26,27,28,29,30,31,32]);
-// COCO17 has face and limb points, but no heels, toes or finger landmarks.
-// The existing body-only policy retains the nose and all 12 limb joints.
-export const MOTION_YOLO_BODY_LANDMARK_INDICES = Object.freeze([0,11,12,13,14,15,16,23,24,25,26,27,28]);
-export const MOTION_WHOLEBODY_NAMES = Object.freeze([
-  'nose','left_eye','right_eye','left_ear','right_ear','left_shoulder','right_shoulder','left_elbow','right_elbow','left_wrist','right_wrist','left_hip','right_hip','left_knee','right_knee','left_ankle','right_ankle',
-  'left_big_toe','left_small_toe','left_heel','right_big_toe','right_small_toe','right_heel',
-  ...Array.from({length:68},(_,i)=>`face_${i}`),
-  ...['left','right'].flatMap(side=>[`${side}_hand_root`,...['thumb','index','middle','ring','pinky'].flatMap(finger=>Array.from({length:4},(_,i)=>`${side}_${finger}_${i+1}`))]),
-]);
-const RTMW_COORDINATES = Object.freeze({
-  image: 'x/y are normalized original-image coordinates (x right, y down); outside-image values are retained. RTMW is 2D and provides no depth or world coordinates.',
-  confidence: 'Mapped visibility is RTMW score clamped to [0,1] for tracking and measurements, not a calibrated visibility probability. wholebodyLandmarks retain the original, unclamped score. Low-score, lost and ambiguous observations must not establish a posture conclusion.',
-  tuple: 'Mapped landmarks are [x,y,visibility,optional missingMask]. Bit (1 << fieldIndex) marks an absent field whose tuple slot is null. Unmarked null is an explicitly unknown value; a null point is unavailable.',
-  wholebody: 'wholebodyLandmarks are all 133 COCO-WholeBody points in wholebodyLandmarkNames order, each [x,y,score]. Mapped 33-point slots support existing measurements; unavailable anatomical matches are null.',
+const MEDIAPIPE_WORLD_COORDINATES = Object.freeze({
+  image: 'landmarks x/y are normalized original-image coordinates (x right, y down), used only for tracking and to locate observations in screenshots. Outside-image values are retained; these are not the metric 3D points.',
+  world: 'worldLandmarks x/y/z are MediaPipe model-estimated 3D coordinates in meters, with the midpoint of the hips as origin. Signed values and values outside [0,1] are valid. These hip-relative coordinates are not a global movement trajectory, measured depth or a measured gravity reference.',
+  confidence: 'visibility is the MediaPipe landmark visibility likelihood in [0,1]. Low-visibility, lost and ambiguous observations must not establish a posture conclusion.',
+  tuple: 'Image landmarks are [x,y,visibility,optional missingMask]. Bit (1 << fieldIndex) marks an absent field whose tuple slot is null. Unmarked null is explicitly unknown; a null point is unavailable.',
+  worldTuple: 'worldLandmarks are [x,y,z,visibility,optional missingMask]. Bit (1 << fieldIndex) marks an absent field whose tuple slot is null. Unmarked null is explicitly unknown; a null point is unavailable. The same retainedLandmarkIndices and 33-slot order apply. An empty array means no 3D observation, never a 2D fallback.',
+  body: 'Only the 17 retainedLandmarkIndices contain observations in the 33-slot array. Face details and finger points are null and are never transmitted to the AI.',
+  measurements: 'Joint angles are estimated 3D angles in degrees from worldLandmarks. torsoLean is the unsigned angle to the model camera Y axis (0 to 90 degrees), not to measured gravity. Perspective, occlusion and model estimation can still cause errors; 3D points do not measure spinal curvature, muscle activation or joint forces.',
   time: 'All timestamps are seconds from video start. time is the requested sample; sourceTime is the actual decoded presentation timestamp when available. These can differ.',
 });
-const BODY_COORDINATES = Object.freeze({...RTMW_COORDINATES,
-  confidence: 'Mapped visibility is RTMW score clamped to [0,1], not a calibrated visibility probability. Low-score, lost and ambiguous observations must not establish a posture conclusion.',
-  wholebody: 'Body-only transport: only retainedLandmarkIndices contain observations in the compatible 33-slot array. Other slots are null; face, finger and raw wholebody tables are not transmitted.',
-});
-const MEDIAPIPE_COORDINATES = Object.freeze({...BODY_COORDINATES,
-  image: 'x/y are normalized original-image coordinates (x right, y down); outside-image values are retained. Only image-plane coordinates are used; MediaPipe depth and world coordinates are not transported or measured.',
-  confidence: 'visibility is the MediaPipe landmark visibility likelihood in [0,1]. Low-visibility, lost and ambiguous observations must not establish a posture conclusion.',
-  tuple: 'Landmarks are [x,y,visibility,optional missingMask]. Bit (1 << fieldIndex) marks an absent field whose tuple slot is null. Unmarked null is an explicitly unknown value; a null point is unavailable.',
-});
-const MEDIAPIPE_WORLD_COORDINATES = Object.freeze({...MEDIAPIPE_COORDINATES,
-  image: 'landmarks x/y are normalized original-image coordinates (x right, y down), used only to locate observations in screenshots. Outside-image values are retained; these are not the metric 3D points.',
-  world: 'worldLandmarks x/y/z are MediaPipe model-estimated 3D coordinates in meters, with the midpoint of the hips as origin. Signed values and values outside [0,1] are valid. These hip-relative coordinates are not a global movement trajectory, measured depth or a measured gravity reference.',
-  worldTuple: 'worldLandmarks are [x,y,z,visibility,optional missingMask]. Bit (1 << fieldIndex) marks an absent field whose tuple slot is null. Unmarked null is explicitly unknown; a null point is unavailable. The same retainedLandmarkIndices and 33-slot order apply. An empty array means no 3D observation, never a 2D fallback.',
-  measurements: 'Joint angles are estimated 3D angles in degrees from worldLandmarks. torsoLean is the unsigned angle to the model camera Y axis (0 to 90 degrees), not to measured gravity. Perspective, occlusion and model estimation can still cause errors; 3D points do not measure spinal curvature, muscle activation or joint forces.',
-});
-const YOLO26_COORDINATES = Object.freeze({...BODY_COORDINATES,
-  image: 'x/y are normalized original-image coordinates (x right, y down); outside-image values are retained. YOLO26-Pose is 2D and provides no depth or world coordinates.',
-  confidence: 'visibility is the YOLO26-Pose keypoint confidence in [0,1], not a calibrated visibility probability. Low-confidence, lost and ambiguous observations must not establish a posture conclusion.',
-  tuple: MEDIAPIPE_COORDINATES.tuple,
-  wholebody: 'Body-only COCO17 transport: retainedLandmarkIndices contain the nose and 12 limb joints in the compatible 33-slot array. Eye/ear points are omitted. YOLO26-Pose has no finger, heel or foot_index points; these slots are null, never inferred from ankles.',
-});
+const MODEL_VERSION = /^MediaPipe Pose Landmarker (Lite|Full|Heavy) .+ \/ world3d-v1$/;
 const fail = (path, reason) => { throw new Error(`完整骨架数据无效（${path}）：${reason}`); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
@@ -140,57 +114,39 @@ function compactPoints(value, path, fields = MOTION_POINT_FIELDS) {
   });
 }
 
-export function buildMotionPoseData(pipeline, {bodyOnly=false}={}) {
+export function buildMotionPoseData(pipeline) {
   if (!record(pipeline) || !Array.isArray(pipeline.frames)) fail('pipeline', '缺少完整采样');
-  const mediaPipe = pipeline.modelVersion?.startsWith('MediaPipe Pose Landmarker Full ');
-  const mediaPipeWorld = mediaPipe && (pipeline.modelVersion.includes('/ world3d-v1') || pipeline.frames.some(frame => own(frame, 'worldLandmarks')));
-  const yolo26 = typeof pipeline.modelVersion === 'string' && /^YOLO26[a-z]?-Pose(?: |$)/.test(pipeline.modelVersion);
-  if (mediaPipe || yolo26) bodyOnly = true;
-  const retainedLandmarkIndices = yolo26 ? MOTION_YOLO_BODY_LANDMARK_INDICES : MOTION_BODY_LANDMARK_INDICES;
   const value = {
-    schemaVersion: bodyOnly?3:2, format: bodyOnly?'rtmw-body17-full':'rtmw-wholebody-133-full', landmarkNames: [...MOTION_LANDMARK_NAMES], pointFields: [...MOTION_POINT_FIELDS], coordinates: {...(bodyOnly?BODY_COORDINATES:RTMW_COORDINATES)},
-    ...(bodyOnly?{retainedLandmarkIndices:[...retainedLandmarkIndices]}:{wholebodyLandmarkNames:[...MOTION_WHOLEBODY_NAMES], wholebodyPointFields:['x','y','score']}),
+    schemaVersion: 6, format: 'mediapipe-world17-full', landmarkNames: [...MOTION_LANDMARK_NAMES],
+    pointFields: [...MOTION_POINT_FIELDS], worldPointFields: [...MOTION_WORLD_POINT_FIELDS],
+    coordinates: {...MEDIAPIPE_WORLD_COORDINATES}, retainedLandmarkIndices: [...MOTION_BODY_LANDMARK_INDICES],
     duration: pipeline.duration, width: pipeline.width, height: pipeline.height, sampleFps: pipeline.sampleFps,
     frameCount: pipeline.frames.length,
     frames: pipeline.frames.map((frame, index) => {
-      object(frame, ['time', 'sourceTime', 'landmarks', 'wholebodyLandmarks', ...(mediaPipeWorld ? ['worldLandmarks'] : []), 'personCount', 'multiPersonCheck', 'subjectTracking'], `frames[${index}]`);
+      object(frame, ['time', 'sourceTime', 'landmarks', 'worldLandmarks', 'personCount', 'multiPersonCheck', 'subjectTracking'], `frames[${index}]`);
       const result = {};
       for (const [key, item] of Object.entries(frame)) if (item !== undefined) {
-        if (key === 'wholebodyLandmarks') {
-          if (bodyOnly) continue;
-          if (!Array.isArray(item)) fail(`frames[${index}].wholebodyLandmarks`, '必须保留完整 133 点，或空数组表示目标缺失');
-          result[key] = Array.from(item, (point, pointIndex) => {
-            object(point, ['x','y','score'], `frames[${index}].wholebodyLandmarks[${pointIndex}]`);
-            return [point.x,point.y,point.score];
-          });
-        } else if (key === 'worldLandmarks') {
-          result[key] = compactPoints(Array.isArray(item) ? item.map((point, pointIndex) => retainedLandmarkIndices.includes(pointIndex) ? point : null) : item, `frames[${index}].${key}`, MOTION_WORLD_POINT_FIELDS);
-        } else result[key] = key === 'landmarks' ? compactPoints(bodyOnly&&Array.isArray(item)?item.map((point,pointIndex)=>retainedLandmarkIndices.includes(pointIndex)?point:null):item, `frames[${index}].${key}`) : cloneJson(item);
+        if (key === 'landmarks' || key === 'worldLandmarks') {
+          const retained = Array.isArray(item) ? item.map((point, pointIndex) => MOTION_BODY_LANDMARK_INDICES.includes(pointIndex) ? point : null) : item;
+          result[key] = compactPoints(retained, `frames[${index}].${key}`, key === 'worldLandmarks' ? MOTION_WORLD_POINT_FIELDS : MOTION_POINT_FIELDS);
+        } else result[key] = cloneJson(item);
       }
-      if (mediaPipeWorld && !own(result, 'worldLandmarks')) result.worldLandmarks = [];
+      if (!own(result, 'worldLandmarks')) result.worldLandmarks = [];
       return result;
     }),
   };
-  if (mediaPipe) Object.assign(value, {schemaVersion:4, format:'mediapipe-body17-full', coordinates:{...MEDIAPIPE_COORDINATES}});
-  if (mediaPipeWorld) Object.assign(value, {schemaVersion:6, format:'mediapipe-world17-full', worldPointFields:[...MOTION_WORLD_POINT_FIELDS], coordinates:{...MEDIAPIPE_WORLD_COORDINATES}});
-  if (yolo26) Object.assign(value, {schemaVersion:5, format:'yolo26-body13-full', coordinates:{...YOLO26_COORDINATES}});
   for (const key of ['sourceFps', 'modelVersion', 'decoder', 'delegate', 'codec', 'elapsedMs', 'timing', 'targetTracking']) if (pipeline[key] !== undefined) value[key] = cloneJson(pipeline[key]);
   return validateMotionPoseData(value, {duration: pipeline.duration});
 }
 
 /** Returns the original object, without sanitizing, rounding or truncation. */
 export function validateMotionPoseData(value, {duration} = {}) {
-  const mediaPipeWorld=value?.schemaVersion===6&&value?.format==='mediapipe-world17-full';
-  const mediaPipe=value?.schemaVersion===4&&value?.format==='mediapipe-body17-full';
-  const yolo26=value?.schemaVersion===5&&value?.format==='yolo26-body13-full';
-  const bodyOnly=mediaPipeWorld||mediaPipe||yolo26||(value?.schemaVersion===3&&value?.format==='rtmw-body17-full');
-  const retainedLandmarkIndices=yolo26?MOTION_YOLO_BODY_LANDMARK_INDICES:MOTION_BODY_LANDMARK_INDICES;
-  object(value, ['schemaVersion', 'format', 'landmarkNames', 'pointFields', 'coordinates', 'duration', 'width', 'height', 'sampleFps', 'sourceFps', 'frameCount', 'frames', 'modelVersion', 'decoder', 'delegate', 'codec', 'elapsedMs', 'timing', 'targetTracking', ...(mediaPipeWorld ? ['worldPointFields'] : []), ...(bodyOnly?['retainedLandmarkIndices']:['wholebodyLandmarkNames', 'wholebodyPointFields'])], 'poseData');
-  if (!bodyOnly&&(value.schemaVersion !== 2 || value.format !== 'rtmw-wholebody-133-full')) fail('poseData', '不支持的协议版本');
-  if (typeof value.modelVersion === 'string' && value.modelVersion.startsWith('MediaPipe Pose Landmarker Full ') && value.modelVersion.includes('/ world3d-v1') && !mediaPipeWorld) fail('poseData', '三维模型必须使用三维骨架协议，不能降级为二维');
-  if (JSON.stringify(value.landmarkNames) !== JSON.stringify(MOTION_LANDMARK_NAMES) || JSON.stringify(value.pointFields) !== JSON.stringify(MOTION_POINT_FIELDS) || JSON.stringify(value.coordinates) !== JSON.stringify(mediaPipeWorld?MEDIAPIPE_WORLD_COORDINATES:yolo26?YOLO26_COORDINATES:mediaPipe?MEDIAPIPE_COORDINATES:bodyOnly?BODY_COORDINATES:RTMW_COORDINATES)) fail('poseData', '坐标定义或关键点顺序不匹配');
-  if (mediaPipeWorld && JSON.stringify(value.worldPointFields) !== JSON.stringify(MOTION_WORLD_POINT_FIELDS)) fail('poseData.worldPointFields', '三维字段顺序不匹配');
-  if (bodyOnly?JSON.stringify(value.retainedLandmarkIndices)!==JSON.stringify(retainedLandmarkIndices):JSON.stringify(value.wholebodyLandmarkNames) !== JSON.stringify(MOTION_WHOLEBODY_NAMES) || JSON.stringify(value.wholebodyPointFields) !== JSON.stringify(['x','y','score'])) fail('poseData','全身关键点定义不匹配');
+  object(value, ['schemaVersion', 'format', 'landmarkNames', 'pointFields', 'worldPointFields', 'coordinates', 'retainedLandmarkIndices', 'duration', 'width', 'height', 'sampleFps', 'sourceFps', 'frameCount', 'frames', 'modelVersion', 'decoder', 'delegate', 'codec', 'elapsedMs', 'timing', 'targetTracking'], 'poseData');
+  if (value.schemaVersion !== 6 || value.format !== 'mediapipe-world17-full') fail('poseData', '仅支持 MediaPipe 三维骨架协议');
+  if (typeof value.modelVersion !== 'string' || !MODEL_VERSION.test(value.modelVersion)) fail('poseData.modelVersion', '必须声明 MediaPipe Lite、Full 或 Heavy 三维模型');
+  if (JSON.stringify(value.landmarkNames) !== JSON.stringify(MOTION_LANDMARK_NAMES) || JSON.stringify(value.pointFields) !== JSON.stringify(MOTION_POINT_FIELDS) || JSON.stringify(value.coordinates) !== JSON.stringify(MEDIAPIPE_WORLD_COORDINATES)) fail('poseData', '坐标定义或关键点顺序不匹配');
+  if (JSON.stringify(value.worldPointFields) !== JSON.stringify(MOTION_WORLD_POINT_FIELDS)) fail('poseData.worldPointFields', '三维字段顺序不匹配');
+  if (JSON.stringify(value.retainedLandmarkIndices) !== JSON.stringify(MOTION_BODY_LANDMARK_INDICES)) fail('poseData.retainedLandmarkIndices', '必须保留统一的 17 个身体节点');
   number(value.duration, 'duration', Number.MIN_VALUE, MOTION_POSE_DATA_LIMITS.maxDuration);
   if (duration !== undefined && (!Number.isFinite(duration) || Math.abs(duration - value.duration) > 0.000001)) fail('duration', '与视频时长不一致');
   number(value.width, 'width', 1, 32768, true); number(value.height, 'height', 1, 32768, true);
@@ -208,7 +164,7 @@ export function validateMotionPoseData(value, {duration} = {}) {
   let lastTime = -1, lastSource = -1, trackId = value.targetTracking?.trackId;
   for (let index = 0; index < value.frames.length; index++) {
     const frame = value.frames[index], path = `frames[${index}]`;
-    object(frame, ['time', 'sourceTime', 'landmarks', ...(mediaPipeWorld?['worldLandmarks']:[]), ...(bodyOnly?[]:['wholebodyLandmarks']), 'personCount', 'multiPersonCheck', 'subjectTracking'], path);
+    object(frame, ['time', 'sourceTime', 'landmarks', 'worldLandmarks', 'personCount', 'multiPersonCheck', 'subjectTracking'], path);
     if (!own(frame, 'landmarks')) fail(`${path}.landmarks`, '必须保留骨架观测或明确的缺失状态');
     number(frame.time, `${path}.time`, 0, value.duration);
     if (frame.time <= lastTime) fail(path, '采样时间必须严格递增');
@@ -219,19 +175,11 @@ export function validateMotionPoseData(value, {duration} = {}) {
       lastSource = time;
     }, path);
     points(frame.landmarks, `${path}.landmarks`);
-    if (bodyOnly&&frame.landmarks?.some((point,pointIndex)=>point!==null&&!retainedLandmarkIndices.includes(pointIndex))) fail(path,`简化骨架只能包含指定的 ${retainedLandmarkIndices.length} 个身体节点`);
-    if (mediaPipeWorld) {
-      if (!own(frame, 'worldLandmarks')) fail(`${path}.worldLandmarks`, '必须保留三维观测或明确的缺失状态');
-      points(frame.worldLandmarks, `${path}.worldLandmarks`, MOTION_WORLD_POINT_FIELDS);
-      if (frame.worldLandmarks?.some((point, pointIndex) => point !== null && !retainedLandmarkIndices.includes(pointIndex))) fail(path, '三维骨架只能包含指定的 17 个身体节点');
-      if (frame.worldLandmarks?.length && !frame.landmarks?.length) fail(path, '三维观测必须对应同一帧的图像骨架');
-    }
-    const raw = bodyOnly?[]:frame.wholebodyLandmarks;
-    if (!bodyOnly&&(!Array.isArray(raw) || ![0,133].includes(raw.length) || (!!raw.length !== !!frame.landmarks?.length))) fail(path,'必须保留完整 133 点，或空数组表示目标缺失');
-    for (const [pointIndex, point] of raw.entries()) {
-      if (!Array.isArray(point) || point.length !== 3) fail(path,'全身关键点应为 x/y/score 元组');
-      for (let field = 0; field < 3; field++) number(point[field],`${path}.wholebodyLandmarks[${pointIndex}][${field}]`);
-    }
+    if (frame.landmarks?.some((point, pointIndex) => point !== null && !MOTION_BODY_LANDMARK_INDICES.includes(pointIndex))) fail(path, '骨架只能包含指定的 17 个身体节点');
+    if (!own(frame, 'worldLandmarks')) fail(`${path}.worldLandmarks`, '必须保留三维观测或明确的缺失状态');
+    points(frame.worldLandmarks, `${path}.worldLandmarks`, MOTION_WORLD_POINT_FIELDS);
+    if (frame.worldLandmarks?.some((point, pointIndex) => point !== null && !MOTION_BODY_LANDMARK_INDICES.includes(pointIndex))) fail(path, '三维骨架只能包含指定的 17 个身体节点');
+    if (frame.worldLandmarks?.length && !frame.landmarks?.length) fail(path, '三维观测必须对应同一帧的图像骨架');
     optional(frame, 'personCount', (n, p) => number(n, p, 0, 64, true), path);
     optional(frame, 'multiPersonCheck', boolean, path);
     optional(frame, 'subjectTracking', (data, p) => {
@@ -250,10 +198,9 @@ const QUALITY_KEYS=['totalFrames','validFrames','usableRatio','sourceFps','targe
 /** Objective observations only. No local action verdict or scoring field is accepted. */
 export function validateFullMotionAnalysis(value, {duration=MOTION_POSE_DATA_LIMITS.maxDuration}={}) {
   number(duration,'duration',Number.MIN_VALUE,MOTION_POSE_DATA_LIMITS.maxDuration);
-  const world3d = value?.version === 'motion-observations-3d-v1';
-  object(value,['version','quality','measurements','targetTracking',...(world3d?['coordinateSpace']:[])],'fullAnalysis');
-  if(!world3d&&value.version!=='motion-observations-v1')fail('fullAnalysis.version','不支持的观测协议');
-  if(world3d&&value.coordinateSpace!=='mediapipe-world-3d')fail('fullAnalysis.coordinateSpace','三维观测必须声明 MediaPipe 世界坐标');
+  object(value,['version','quality','measurements','targetTracking','coordinateSpace'],'fullAnalysis');
+  if(value.version!=='motion-observations-3d-v1')fail('fullAnalysis.version','仅支持三维观测协议');
+  if(value.coordinateSpace!=='mediapipe-world-3d')fail('fullAnalysis.coordinateSpace','三维观测必须声明 MediaPipe 世界坐标');
   object(value.quality,QUALITY_KEYS,'fullAnalysis.quality');
   const q=value.quality;
   for(const key of QUALITY_KEYS)if(!own(q,key))fail('fullAnalysis.quality.'+key,'缺少完整观测字段');

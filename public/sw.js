@@ -1,10 +1,10 @@
-const CACHE = 'fitness-shell-v92';
+const CACHE = 'fitness-shell-v93';
 const SHELL = ['/', '/index.html', '/app.css', '/providers.css', '/app.js', '/store.js', '/domain.js', '/model-capabilities.js', '/schedule.js', '/busy-rules.js', '/holidays.js', '/achievements.js', '/plan-library.js', '/assets/weekly-achievement.svg', '/meal-advice-prompt.js', '/meal-contract.js', '/knowledge.js', '/knowledge-tools.js', '/visuals.js', '/model-viewer.js', '/provider-presets.js', '/provider-ui.js', '/exercise-covers.js', '/chat-stream.js', '/chat-markdown.js', '/chat-attachments.js', '/chat-view.js', '/vendor/marked.esm.js', '/vendor/purify.es.js', '/icon.svg', '/manifest.webmanifest'];
 SHELL.push('/web-search.js','/nutrition-feedback-view.js','/nutrition-feedback.js','/meal-display.js','/compute.js','/compute-catalog.js');
 SHELL.push('/view-transitions.js');
 SHELL.push('/chat-motion.js','/chat-motion-confirm.js','/chat-motion-result.js','/chat-motion.css','/motion-report.js');
 SHELL.push('/community.css', '/community.js', '/community-api.js', '/community-drafts.js', '/community-report-reasons.js', '/community-groups.js', '/community-groups.css', '/community-images.js');
-SHELL.push('/motion-models.js', '/motion-rtmw.js', '/motion-mediapipe.js', '/motion-yolo26.js', '/motion-overlay.js', '/motion-smoothing.js');
+SHELL.push('/motion-models.js', '/motion-mediapipe.js', '/motion-overlay.js', '/motion-smoothing.js');
 SHELL.push('/brand.css', '/assets/logo.svg', '/assets/icons/icon-192.png', '/assets/icons/icon-512.png', '/assets/icons/apple-touch-icon.png');
 SHELL.push('/motion.css', '/motion-view.js', '/motion-video.js', '/motion-worker.js', '/motion-analysis.js', '/motion-decode.js', '/motion-catalog.js', '/motion-contract.js', '/motion-evidence.js', '/motion-tracking.js');
 SHELL.push('/achievement-view.js', ...['first','week','sprout','rhythm','tree','mountain','footprints','steps','summit','cycle','sunrise','seasons'].flatMap(name=>[`/assets/achievements/${name}.svg`,`/assets/achievements/${name}-pending.svg`]));
@@ -23,7 +23,7 @@ self.addEventListener('fetch', event => {
   }).catch(() => caches.open(CACHE).then(cache => cache.match(url.pathname)).then(response => response || Response.error())));
   // Large, pinned pose assets are cached only when an analysis needs them.
   // A model upgrade must bump CACHE alongside the model manifest.
-  if (['mp4box','ffmpeg','rtmw','yolo26','onnxruntime','mediapipe'].some(directory => url.pathname.startsWith(`/vendor/${directory}/`))) event.respondWith(caches.open(CACHE).then(async cache => {
+  if (['mp4box','ffmpeg','mediapipe'].some(directory => url.pathname.startsWith(`/vendor/${directory}/`))) event.respondWith(caches.open(CACHE).then(async cache => {
     const hit=await cache.match(event.request);if(hit)return hit;
     const response=await fetch(event.request);if(response.ok)await cache.put(event.request,response.clone()).catch(()=>{});return response;
   }));

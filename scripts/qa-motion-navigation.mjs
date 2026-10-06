@@ -1,5 +1,5 @@
 // Browser integration regression: preserve one local motion workspace across SPA
-// navigation. Real RTMW; deterministic waits and a local mock coach, no paid AI.
+// navigation. Real MediaPipe Full; deterministic waits and a local mock coach, no paid AI.
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {join,dirname,resolve} from 'node:path';
@@ -18,7 +18,7 @@ const ffmpeg=process.env.QA_FFMPEG||join(root,'.qa/motion-fixtures/qa-codecs/ima
 await promisify(execFile)(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-i',resolve(process.argv[2]||join(root,'.qa/motion-fixtures/squat.mp4')),
   '-t','1','-an','-vf','scale=480:-2','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p',clip],{windowsHide:true});
 const sha=value=>createHash('sha256').update(value).digest('hex');
-const files=['public/app.js','public/motion-view.js','public/motion-video.js','public/motion-worker.js','public/motion-rtmw.js','server.mjs'];
+const files=['public/app.js','public/motion-view.js','public/motion-video.js','public/motion-worker.js','public/motion-mediapipe.js','server.mjs'];
 const codeHashes=Object.fromEntries(await Promise.all(files.map(async file=>[file,sha(await readFile(join(root,file)))])));
 const videoSource=await readFile(join(root,'public/motion-video.js'),'utf8');
 const viewSource=await readFile(join(root,'public/motion-view.js'),'utf8');
@@ -124,7 +124,7 @@ try{
   const secondRegister=await secondContext.request.post(origin+'/api/auth/register',{data:{name:'导航回归乙',email:secondEmail,password:'qa-navigation-password'}});
   assert.equal(secondRegister.status(),201);const secondUser=(await secondRegister.json()).user;
   assert.equal((await secondContext.request.post(origin+'/api/sync',{data:{userId:secondUser.id,changes:[{id:'profile',kind:'profile',baseVersion:0,data:profile}]}})).status(),200);await secondContext.close();
-  await page.goto(origin+'/#motion');await page.locator('[data-motion-pose-model]').selectOption('rtmw');
+  await page.goto(origin+'/#motion');await page.locator('[data-motion-pose-model]').selectOption('mediapipe-full');
   assert(await page.locator('[data-motion-confirmation]').isHidden());
   await page.locator('[data-motion-file]').setInputFiles(clip);
   await page.waitForFunction(()=>document.querySelector('[data-motion-video]')?.readyState>=2&&!document.querySelector('[data-motion-player]')?.hidden);
@@ -156,12 +156,12 @@ try{
   await Promise.race([recognitionEntered,new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('Mock recognition was not entered within 30 seconds')),30000);timeout.unref();recognitionEntered.then(()=>clearTimeout(timeout));})]);
   assert.equal(coachCalls.length,1);assert.equal(motionInputs.length,1);
   const input=validateMotionCoachRequest(motionInputs[0]);assert.equal(input.reviewMode,'recognize');assert.equal(input.selectedExerciseId,undefined);
-  assert.equal(input.poseData.schemaVersion,3);assert.equal(input.poseData.retainedLandmarkIndices.length,17);assert.equal(input.poseData.sampleFps,7.5);
+  assert.equal(input.poseData.schemaVersion,6);assert.equal(input.poseData.retainedLandmarkIndices.length,17);assert.equal(input.poseData.sampleFps,7.5);
   assert.equal(input.keyframes.length,6);assert.equal(input.fullAnalysis.measurements.length,input.poseData.frameCount);
   const pipeline=await page.evaluate(()=>({frames:window.__qaPipeline.frames.length,sampleFps:window.__qaPipeline.sampleFps,delegate:window.__qaPipeline.delegate,decoder:window.__qaPipeline.decoder,modelVersion:window.__qaPipeline.modelVersion,timing:window.__qaPipeline.timing}));
-  assert.match(pipeline.modelVersion,/RTMW/);assert.equal(pipeline.frames,input.poseData.frameCount);
+  assert.match(pipeline.modelVersion,/MediaPipe Pose Landmarker Full/);assert.equal(pipeline.frames,input.poseData.frameCount);
   pending=await assertRetained('real-pose-completed-ai-pending');assert.equal(pending.workers,1);assert.equal(pending.analysisCalls,1);
-  checks.push('Analysis pending navigation preserves its AbortSignal and starts exactly one actual RTMW worker after releasing the deterministic gate');
+  checks.push('Analysis pending navigation preserves its AbortSignal and starts exactly one actual MediaPipe worker after releasing the deterministic gate');
 
   step='recognition pending navigation keeps one live request';console.log(step);
   await nav('training');await nav('settings');await nav('motion');await assertRetained('ai-request-pending-return');
@@ -219,7 +219,7 @@ try{
   checks.push('Explicit logout revokes the blob and destroys the cached workspace; a different account sees no video, selection, result or report');
   assert.equal(coachCalls.length,2);assert.equal(motionInputs.length,2);assert.equal(coachAborted,false);assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
   for(const [file,hash]of Object.entries(codeHashes))assert.equal(sha(await readFile(join(root,file))),hash,`${file} changed during QA`);
-  const result={passed:true,scope:'Real RTMW and browser navigation integration with a local mock coach; not an AI quality evaluation.',dataDir,codeHashes,sourceVideoSha256:sha(await readFile(clip)),
+  const result={passed:true,scope:'Real MediaPipe Full and browser navigation integration with a local mock coach; not an AI quality evaluation.',dataDir,codeHashes,sourceVideoSha256:sha(await readFile(clip)),
     pipeline,reportId,mockCoachCalls:coachCalls.length,motionRequests:motionInputs.length,coachAborted,beforeReload,snapshots,checks,
     instrumentation:'analyzeVideo waits on a QA gate before calling the unmodified function once; mount lifecycle, Worker creation and object URLs are observed without changing their behavior. The mock provider waits on a server gate.',errors};
   await writeFile(join(dataDir,'results.json'),JSON.stringify(result,null,2));await writeFile(join(dataDir,'mock-provider-trace.json'),JSON.stringify(coachCalls,null,2));console.log(JSON.stringify(result));

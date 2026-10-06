@@ -13,14 +13,14 @@ function compact(value, depth = 0) {
   if (typeof value === 'string') return value.slice(0, 300);
   if (!value || typeof value !== 'object' || depth > 4) return undefined;
   if (Array.isArray(value)) return value.slice(0, 24).map(item => compact(item, depth + 1));
-  return Object.fromEntries(Object.entries(value).filter(([key]) => !/^(landmarks|worldLandmarks|wholebodyLandmarks|frames|dataurl|base64|images?|video|file)$/i.test(key)).slice(0, 24).map(([key, item]) => [key.slice(0, 64), compact(item, depth + 1)]));
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !/^(?:.*landmarks|frames|dataurl|base64|images?|video|file)$/i.test(key)).slice(0, 24).map(([key, item]) => [key.slice(0, 64), compact(item, depth + 1)]));
 }
 
 export function summarizeMotionAnalysis(observations={},pipeline={}) {
   const quality=observations.quality||{};
   return {
-    version:observations.coordinateSpace==='mediapipe-world-3d'?'motion-observations-3d-v1':'motion-observations-v1',
-    ...(observations.coordinateSpace==='mediapipe-world-3d'?{coordinateSpace:observations.coordinateSpace}:{}),duration:finite(pipeline.duration)?pipeline.duration:null,
+    version:'motion-observations-3d-v1',
+    coordinateSpace:'mediapipe-world-3d',duration:finite(pipeline.duration)?pipeline.duration:null,
     sampleFps:finite(pipeline.sampleFps)?pipeline.sampleFps:null,sourceFps:finite(pipeline.sourceFps)?pipeline.sourceFps:null,
     quality:Object.fromEntries(['totalFrames','validFrames','usableRatio','sourceFps','targetCoverage','reasons'].filter(key=>Object.hasOwn(quality,key)).map(key=>[key,key==='reasons'?(Array.isArray(quality[key])?quality[key].filter(item=>typeof item==='string').slice(0,64).map(item=>item.slice(0,100)):[]):quality[key]===null||finite(quality[key])?quality[key]:null])),
     ...(pipeline.targetTracking?{targetTracking:compact(Object.fromEntries(['mode','point','trackId','coverage','lockedFrames','ambiguousFrames','lostFrames','totalFrames','maxPeople'].filter(key=>Object.hasOwn(pipeline.targetTracking,key)).map(key=>[key,pipeline.targetTracking[key]])))}:{}),
