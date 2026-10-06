@@ -202,7 +202,7 @@ try{
   checks.push('reference profile layout across desktop and mobile, own editing and collections, other collection privacy, live follower and received engagement counts');
 
   step='unified personal center and owner-controlled public collections';console.log(step);
-  const personalEntry=page.locator('.cm-primary-tabs a[aria-label="个人中心"]');assert.equal(await personalEntry.getAttribute('href'),'#settings');await personalEntry.click();await page.locator('#personal-community .cm-profile-copy h1').waitFor();
+  const personalEntry=page.locator('.nav [data-page="settings"]');await personalEntry.click();await page.locator('#personal-community .cm-profile-copy h1').waitFor();
   assert.equal(await page.evaluate(()=>location.hash),'#settings');
   assert.equal(await page.locator('.nav [data-page="settings"]').getAttribute('aria-current'),'page');
   assert.equal(await page.locator('#personal-community .cm-toolbar,#personal-community .cm-primary-tabs').count(),0,'Personal center must not duplicate the community navigation');

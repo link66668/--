@@ -1,5 +1,5 @@
 /* Authenticated workspace uses the homepage brand palette in landing.css.
-   Light blue/lilac surfaces, charcoal actions, electric blue, coral and lime accents.
+   Light blue/lilac surfaces, charcoal actions, soft blue-violet, coral and lime accents.
    Scope includes dialogs/toasts outside .layout and resets when returning to the landing page. */
 :root[data-theme="workspace"] {
   color-scheme: light;
@@ -18,7 +18,7 @@
   --action-ink: var(--home-action);
   --violet: var(--home-orbit);
   --accent-line: #d1d7ed;
-  --focus: #233aff;
+  --focus: #5368ee;
   --warm: var(--home-coral);
   --warm-ink: #98633c;
   --sky: var(--home-training);
@@ -37,10 +37,33 @@
 :root[data-theme="workspace"] .layout { color: var(--ink); }
 :root[data-theme="workspace"] :is(button, a):focus-visible { outline-color: var(--focus); }
 :root[data-theme="workspace"] :is(input, select, textarea) { border-color: var(--line); }
-:root[data-theme="workspace"] :is(input, select, textarea):focus { border-color: var(--focus); box-shadow: 0 0 0 3px #233aff14; }
+:root[data-theme="workspace"] :is(input, select, textarea):focus { border-color: var(--focus); box-shadow: 0 0 0 3px #5368ee14; }
 :root[data-theme="workspace"] :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
 :root[data-theme="workspace"] :is(input[type="checkbox"], input[type="radio"]) { accent-color: var(--green); }
 :root[data-theme="workspace"] :is(label, .eyebrow) { color: var(--muted); }
+
+/* Page titles share the landing lettering; the wordmark starts in blue. */
+:root[data-theme="workspace"] .sidebar .brand-name { display: inline-block; max-width: 100%; color: #333b73; }
+:root[data-theme="workspace"] #page h1:not(.markdown-body h1, .message h1, .cm-profile-copy h1, .cm-chat-peer h1) { width: fit-content; max-width: 100%; color: var(--ink); }
+:root[data-theme="workspace"] #page h1:not(.markdown-body h1, .message h1, .cm-profile-copy h1, .cm-chat-peer h1) span { background: none; color: inherit; -webkit-text-fill-color: inherit; }
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  :root[data-theme="workspace"] #page h1:not(.markdown-body h1, .message h1, .cm-profile-copy h1, .cm-chat-peer h1),
+  :root[data-theme="workspace"] .sidebar .brand-name {
+    background: linear-gradient(110deg, #14141a 10%, #333b73 55%, #5368ee 95%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+  :root[data-theme="workspace"] .sidebar .brand-name {
+    background-image: linear-gradient(110deg, #333b73 10%, #5368ee 95%);
+  }
+}
+@media (forced-colors: active) {
+  :root[data-theme="workspace"] .sidebar .brand-name,
+  :root[data-theme="workspace"] #page h1:not(.markdown-body h1, .message h1, .cm-profile-copy h1, .cm-chat-peer h1),
+  :root[data-theme="workspace"] #page h1:not(.markdown-body h1, .message h1, .cm-profile-copy h1, .cm-chat-peer h1) span { background: none; color: CanvasText; -webkit-text-fill-color: CanvasText; }
+}
 
 /* Sky-blue navigation with readable blue text on light selected surfaces. */
 :root[data-theme="workspace"] .sidebar { background: var(--surface-soft); color: var(--ink); border-color: var(--line); }
@@ -50,8 +73,8 @@
 :root[data-theme="workspace"] :is(.sidebar .sidebar-toggle, .sidebar .icon-button, .icon-button) { color: #74758e; }
 :root[data-theme="workspace"] :is(.sidebar .icon-button, .icon-button):hover { background: #dddff0; color: var(--green); }
 :root[data-theme="workspace"] .nav button { color: #66677c; }
-:root[data-theme="workspace"] .nav button.active { background: var(--action-bg); color: var(--action-ink); box-shadow: 0 5px 14px #233aff14; }
-:root[data-theme="workspace"] .nav button .nav-dot { background: #233aff; }
+:root[data-theme="workspace"] .nav button.active { background: var(--action-bg); color: var(--action-ink); box-shadow: 0 5px 14px #5368ee14; }
+:root[data-theme="workspace"] .nav button .nav-dot { background: #5368ee; }
 :root[data-theme="workspace"] .nav button:not(.active):hover { background: #e0e3f5; color: var(--green); }
 :root[data-theme="workspace"] .nav button[data-page="nutrition"]:not(.active) > .icon { color: #ca7a53; }
 :root[data-theme="workspace"] .nav button[data-page="training"]:not(.active) > .icon { color: #84a755; }
@@ -77,8 +100,8 @@
 /* Shared controls and surfaces; errors retain their existing red semantics. */
 :root[data-theme="workspace"] .button { background: var(--surface); border-color: var(--line); border-radius: 11px; }
 :root[data-theme="workspace"] .button:hover { background: var(--soft); border-color: var(--accent-line); }
-:root[data-theme="workspace"] .button.primary { background: var(--home-action); border-color: var(--home-action); color: #fff; box-shadow: 0 3px 10px #233aff0d; }
-:root[data-theme="workspace"] .button.primary:hover { background: var(--home-blue); border-color: var(--home-blue); box-shadow: 0 4px 12px #233aff1f; }
+:root[data-theme="workspace"] .button.primary { background: var(--home-action); border-color: var(--home-action); color: #fff; box-shadow: 0 3px 10px #5368ee0d; }
+:root[data-theme="workspace"] .button.primary:hover { background: var(--home-blue); border-color: var(--home-blue); box-shadow: 0 4px 12px #5368ee1f; }
 :root[data-theme="workspace"] .button.subtle { background: var(--soft); border-color: var(--soft); color: var(--green); }
 :root[data-theme="workspace"] .button.danger { background: #fff4ef; border-color: #ebd6cf; color: #a04840; }
 :root[data-theme="workspace"] .button.danger:hover { background: #fbe7df; border-color: #ddbfb5; }
@@ -95,7 +118,6 @@
 :root[data-theme="workspace"] .greeting { background: var(--home-hero); color: #272833; border-radius: 20px; }
 :root[data-theme="workspace"] .greeting::before { background: #ffffff38; }
 :root[data-theme="workspace"] .greeting h1 { font-weight: 500; }
-:root[data-theme="workspace"] .greeting h1 span { background: linear-gradient(110deg, #333b73, #5368ee); background-clip: text; -webkit-background-clip: text; color: transparent; }
 :root[data-theme="workspace"] .greeting :is(.eyebrow, .greeting-hello, p, .greeting-tags) { color: #616680; }
 :root[data-theme="workspace"] .greeting-tags > span:first-child { background: #ffffff70; border-color: #ffffff99; color: #545f9b; }
 :root[data-theme="workspace"] .live-dot { background: #6579e4; box-shadow: 0 0 0 4px #6579e418; }
@@ -109,7 +131,7 @@
 :root[data-theme="workspace"] .satellite-white { background: var(--home-knowledge); color: #706394; }
 :root[data-theme="workspace"] .quick-heading > span { color: var(--muted); }
 :root[data-theme="workspace"] .prompt-card:nth-child(n) { background: var(--surface); border-color: var(--line); border-radius: 15px; }
-:root[data-theme="workspace"] .prompt-card:nth-child(n):hover { background: #e3e9fc; border-color: #bac4ef; box-shadow: 0 5px 16px #233aff08; }
+:root[data-theme="workspace"] .prompt-card:nth-child(n):hover { background: #e3e9fc; border-color: #bac4ef; box-shadow: 0 5px 16px #5368ee08; }
 :root[data-theme="workspace"] .prompt-card:nth-child(n) .prompt-icon { background: var(--soft); color: #4e60bd; border-radius: 10px; }
 :root[data-theme="workspace"] .prompt-card:nth-child(2) .prompt-icon { background: #ffccb2; color: #a05d3c; }
 :root[data-theme="workspace"] .prompt-card:nth-child(3) .prompt-icon { background: #d9d8ed; color: #726694; }
@@ -136,13 +158,13 @@
 :root[data-theme="workspace"] .tip-card { background: #faf2df; border-color: #e9ddbf; }
 :root[data-theme="workspace"] .tip-card :is(strong, p) { color: #94764a; }
 :root[data-theme="workspace"] .composer { background: var(--paper); }
-:root[data-theme="workspace"] .composer-box { background: var(--surface); border-color: #d6d7e7; box-shadow: 0 5px 20px #233aff05; }
-:root[data-theme="workspace"] .composer-box:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px #233aff12, 0 5px 20px #233aff08; }
+:root[data-theme="workspace"] .composer-box { background: var(--surface); border-color: #d6d7e7; box-shadow: 0 5px 20px #5368ee05; }
+:root[data-theme="workspace"] .composer-box:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px #5368ee12, 0 5px 20px #5368ee08; }
 :root[data-theme="workspace"] .composer textarea { caret-color: var(--green); box-shadow: none; }
 :root[data-theme="workspace"] .composer .icon-button { color: #74758e; }
 :root[data-theme="workspace"] .composer .icon-button:hover { background: var(--soft); color: var(--green); }
 :root[data-theme="workspace"] .composer .send { background: var(--home-action); color: #fff; }
-:root[data-theme="workspace"] .composer .send:hover:not(:disabled) { background: var(--home-blue); box-shadow: 0 3px 10px #233aff22; }
+:root[data-theme="workspace"] .composer .send:hover:not(:disabled) { background: var(--home-blue); box-shadow: 0 3px 10px #5368ee22; }
 :root[data-theme="workspace"] :is(.composer-model, .composer-note) { color: var(--muted); }
 :root[data-theme="workspace"] .message.user .bubble { background: #e4e8fc; color: var(--ink); }
 :root[data-theme="workspace"] .message .message-icon { background: #dde4fc; color: var(--green); }
@@ -158,7 +180,7 @@
 :root[data-theme="workspace"] .nutrition-day.distance-1 { background: #e7eaf6; color: #6c7290; }
 :root[data-theme="workspace"] .nutrition-day.distance-2 { background: #edecf6; color: #72748a; }
 :root[data-theme="workspace"] :is(.nutrition-day.distance-3, .nutrition-day.distance-4) { background: #efeef8; color: var(--muted); }
-:root[data-theme="workspace"] .nutrition-day.is-selected { background: var(--action-bg); color: var(--action-ink); box-shadow: 0 5px 12px #233aff18; }
+:root[data-theme="workspace"] .nutrition-day.is-selected { background: var(--action-bg); color: var(--action-ink); box-shadow: 0 5px 12px #5368ee18; }
 :root[data-theme="workspace"] .nutrition-day:not(.is-selected):hover { background: #d4dcf5; color: var(--green); }
 :root[data-theme="workspace"] :is(.meal-macro.protein, .balance-tile.protein) { background: #e6e5f3; }
 :root[data-theme="workspace"] :is(.meal-macro.carbs, .balance-tile.carbs) { background: #edf5df; }
