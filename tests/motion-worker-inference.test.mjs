@@ -5,19 +5,17 @@ import vm from 'node:vm';
 import {getMotionPoseModel, MOTION_POSE_MODEL} from '../public/motion-models.js';
 
 const workerSource = await readFile(new URL('../public/motion-worker.js', import.meta.url), 'utf8');
-function initializingWorker({failYolo = false} = {}) {
+function initializingWorker({failModel} = {}) {
   const messages = [], starts = [], imports = [];
-  const start = model => async options => {
-    starts.push({model, delegate: options.delegate});
-    if (model === 'yolo26' && failYolo) throw new Error('YOLO fixture initialization failed');
+  const start = async options => {
+    starts.push({model: options.model, delegate: options.delegate});
+    if (options.model === failModel) throw new Error('MediaPipe fixture initialization failed');
     return {delegate: 'CPU'};
   };
   const modules = {
     './motion-models.js': {getMotionPoseModel},
     './motion-tracking.js': {validateTargetPoint: point => point, createSubjectTracker: () => ({})},
-    './motion-mediapipe.js': {createMediaPipe: start('mediapipe-full')},
-    './motion-rtmw.js': {createRtmw: start('rtmw')},
-    './motion-yolo26.js': {createYolo26: start('yolo26')},
+    './motion-mediapipe.js': {createMediaPipe: start},
   };
   const context = vm.createContext({self: {postMessage: value => messages.push(value)}, performance,
     OffscreenCanvas: class {}, runtime: {async importModule(specifier) {
@@ -34,30 +32,27 @@ function initializingWorker({failYolo = false} = {}) {
 
 test('worker starts only the selected pose model and preserves the standard default', async () => {
   assert.equal(MOTION_POSE_MODEL.id, 'mediapipe-full');
-  for (const selected of [undefined, 'rtmw', 'mediapipe-full', 'yolo26']) {
+  for (const selected of [undefined, 'mediapipe-lite', 'mediapipe-full', 'mediapipe-heavy']) {
     const h = initializingWorker(), expected = selected ?? 'mediapipe-full';
     await h.init(selected);
     assert.deepEqual(h.starts, [{model: expected, delegate: 'CPU'}]);
     assert.equal(h.messages.at(-1).modelVersion, getMotionPoseModel(expected).version);
-    if (expected === 'yolo26') {
-      assert(!h.imports.includes('./motion-rtmw.js'));
-      assert(!h.imports.includes('./motion-mediapipe.js'));
-    }
+    assert(h.imports.includes('./motion-mediapipe.js'));
   }
 });
 
-test('YOLO initialization failure is reported without loading a different skeleton model', async () => {
-  const h = initializingWorker({failYolo: true});
-  await h.init('yolo26');
-  assert.deepEqual(h.starts, [{model: 'yolo26', delegate: 'CPU'}]);
-  assert.match(h.messages.at(-1).error, /YOLO fixture initialization failed/);
-  assert(!h.imports.includes('./motion-rtmw.js'));
-  assert(!h.imports.includes('./motion-mediapipe.js'));
+test('selected tier initialization failure is reported without loading a different tier', async () => {
+  for(const model of ['mediapipe-lite','mediapipe-full','mediapipe-heavy']) {
+    const h = initializingWorker({failModel:model});
+    await h.init(model);
+    assert.deepEqual(h.starts, [{model, delegate: 'CPU'}]);
+    assert.match(h.messages.at(-1).error, /MediaPipe fixture initialization failed/);
+  }
 });
 function worker({result,selection} = {}) {
   const inferences = [], trackingTimes = [];
   const context = vm.createContext({self: {}, performance, runtime: {
-    pose: {async detect(image) { inferences.push(image); return result ?? {landmarks: [[{x: image.x}]], wholebodyLandmarks: [[{x: image.x, score: 2}]]}; }},
+    pose: {async detect(image) { inferences.push(image); return result ?? {landmarks: [[{x: image.x}]], worldLandmarks: [[{x: image.x, y: .2, z: -.4, visibility: .9}]]}; }},
     tracker: {update(_poses, time) { trackingTimes.push(time); return selection ?? {index: 0, subjectTracking: {status: 'locked'}}; }},
   }});
   vm.runInContext(workerSource, context);
@@ -85,7 +80,7 @@ test('missing target or missing matching world pose stays empty and cannot use a
     assert.equal(frame.worldLandmarks.length,0);
     assert.equal(frame.landmarks.length,index===null?0:1);
   }
-  assert.equal(Object.hasOwn(await worker().analyze({x:.4},0),'worldLandmarks'),false);
+  assert.equal((await worker({result:{landmarks:[[{x:.4}]]}}).analyze({},0)).worldLandmarks.length,0);
 });
 
 test('low-FPS repeated decoded pixels need one inference and retain every sampling timestamp', async () => {
@@ -95,7 +90,7 @@ test('low-FPS repeated decoded pixels need one inference and retain every sampli
   const third = await analyze(image, 2000 / 15, 0);
   assert.equal(inferences.length, 1);
   assert.deepEqual(trackingTimes, [0, 1 / 15, 2 / 15]);
-  assert.deepEqual(second.wholebodyLandmarks, first.wholebodyLandmarks);
+  assert.deepEqual(second.worldLandmarks, first.worldLandmarks);
   assert.deepEqual(third.landmarks, first.landmarks);
   assert.equal(third.personCount, 1);
   assert.equal(third.multiPersonCheck, true);
@@ -105,7 +100,7 @@ test('new source timestamp, new image or missing timestamp cannot reuse an old p
   const {analyze, inferences} = worker(), image = {x: .4};
   await analyze(image, 0, 0);
   image.x = .7;
-  assert.equal((await analyze(image, 100, .1)).wholebodyLandmarks[0].x, .7, 'decoder repainted the same canvas');
+  assert.equal((await analyze(image, 100, .1)).worldLandmarks[0].x, .7, 'decoder repainted the same canvas');
   await analyze({x: .8}, 200, .1);
   await analyze(image, 300);
   await analyze(image, 400);

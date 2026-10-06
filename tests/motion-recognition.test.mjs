@@ -104,9 +104,9 @@ test('saved reports are an allowlist and retain every validated feedback referen
     coverage: {complete: true, frameCount: 120, reviewedFrameCount: 120, measurementCount: 120, reviewedMeasurementCount: 120, dataBatches: 3, modelCalls: 5, repetitionCount: 9},
     timing: {providerMs: 123, totalMs: 456, raw: 1}, model: 'model', provider: 'provider', checks: [{status: 'pass'}], raw: [1], score: 100,
   };
-  const local = {version: 'motion-observations-v1', score: 69, exerciseName: '本地猜测', reps: [{score: 69}], checks: [{status: 'fail'}], measurements: [{frameIndex: 0}], quality: {totalFrames: 120, validFrames: 120, usableRatio: 1, targetCoverage: 1, reasons: []}};
+  const local = {version: 'motion-observations-3d-v1', coordinateSpace: 'mediapipe-world-3d', score: 69, exerciseName: '本地猜测', reps: [{score: 69}], checks: [{status: 'fail'}], measurements: [{frameIndex: 0}], quality: {totalFrames: 120, validFrames: 120, usableRatio: 1, targetCoverage: 1, reasons: []}};
   const report = mergeCoachAssessment(local, coach);
-  assert.deepEqual(Object.keys(report).sort(), ['coach', 'exerciseFamily', 'exerciseId', 'exerciseName', 'quality', 'recognitionSource', 'version']);
+  assert.deepEqual(Object.keys(report).sort(), ['coach', 'coordinateSpace', 'exerciseFamily', 'exerciseId', 'exerciseName', 'quality', 'recognitionSource', 'version']);
   assert.equal(report.exerciseName, '杠铃卧推');
   assert.equal(report.recognitionSource, 'visual');
   assert.deepEqual(report.coach.feedback[0].evidenceTimes, feedbackTimes);

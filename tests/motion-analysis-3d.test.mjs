@@ -30,9 +30,9 @@ for(const [name,indices] of Object.entries({elbowAngle:[11,13,15],shoulderAngle:
     close(report.measurements[0].left[name],60);
     const {worldLandmarks,...planar}=sample;
     const old=analyzeMotion([planar],{width:1000,height:1000});
-    close(old.measurements[0].left[name],90);
-    assert.equal(old.version,'motion-observations-v1');
-    assert.equal(Object.hasOwn(old,'coordinateSpace'),false);
+    assert.equal(old.measurements[0].left[name],null);
+    assert.equal(old.version,'motion-observations-3d-v1');
+    assert.equal(old.coordinateSpace,'mediapipe-world-3d');
   });
 }
 
@@ -88,7 +88,7 @@ test('world angles remain independent of video aspect ratio and preserve immutab
   assert.deepEqual(analyzeMotion(frames,{...options,width:1920,height:1080}),analyzeMotion(frames,{...options,width:1080,height:1920}));
 });
 
-test('lost target and identity changes suppress 3D observations like planar observations',()=>{
+test('lost target and identity changes suppress 3D observations without image-only fallbacks',()=>{
   for(const tracking of [{status:'lost',confidence:0,trackId:'person'},{status:'locked',confidence:.4,trackId:'person'}]) {
     assert(allNull(analyzeMotion([{...frame(),subjectTracking:tracking}],options).measurements[0]));
   }

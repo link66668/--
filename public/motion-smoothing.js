@@ -1,5 +1,3 @@
-import { RTMW_TO_BODY_LANDMARKS } from './motion-rtmw.js';
-
 // One Euro filtering changes only the display coordinates. At 15 Hz the low
 // resting cutoff reduces small jitter; velocity raises it for fast movements.
 // Express beta at a 1000 px long edge so proportional resolutions agree.
@@ -12,8 +10,8 @@ export const MOTION_SMOOTHING_CONFIG = Object.freeze({
 });
 
 const finite = value => typeof value === 'number' && Number.isFinite(value);
-const validPoint = point => point && [point.x, point.y, point.score].every(finite)
-  && point.score > 0 && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1;
+const validPoint = point => point && [point.x, point.y, point.visibility].every(finite)
+  && point.visibility > 0 && point.visibility <= 1 && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1;
 const alpha = (cutoff, dt) => 1 / (1 + 1 / (2 * Math.PI * cutoff * dt));
 const mix = (previous, value, weight) => previous + weight * (value - previous);
 const clonePoints = points => Array.isArray(points) ? points.map(point => point ? { ...point } : point) : points;
@@ -41,29 +39,22 @@ export function buildSmoothedMotionFrames(frames, { width, height } = {}) {
   const beta = MOTION_SMOOTHING_CONFIG.beta * MOTION_SMOOTHING_CONFIG.referenceLongEdge / Math.max(width, height);
   let previousPoints = [], previousTime, previousTrackId;
   return frames.map(frame => {
-    const output = { ...frame, landmarks: clonePoints(frame.landmarks), wholebodyLandmarks: clonePoints(frame.wholebodyLandmarks) };
+    const output = { ...frame, landmarks: clonePoints(frame.landmarks), worldLandmarks: clonePoints(frame.worldLandmarks) };
     const time = finite(frame.sourceTime) ? frame.sourceTime : frame.time;
     const trackId = frame.subjectTracking?.trackId;
     const tracked = frame.subjectTracking?.status === 'locked';
-    if (!tracked || !finite(time) || !Array.isArray(frame.wholebodyLandmarks) || frame.wholebodyLandmarks.length !== 133) {
+    if (!tracked || !finite(time) || !Array.isArray(frame.landmarks) || frame.landmarks.length !== 33) {
       previousPoints = []; previousTime = undefined; previousTrackId = undefined;
       return output;
     }
     const dt = time - previousTime;
     if (!finite(dt) || dt <= 0 || dt > MOTION_SMOOTHING_CONFIG.maxGapSeconds || trackId !== previousTrackId) previousPoints = [];
     const nextPoints = [];
-    output.wholebodyLandmarks = frame.wholebodyLandmarks.map((point, index) => {
+    output.landmarks = frame.landmarks.map((point, index) => {
       if (!validPoint(point)) return point ? { ...point } : point;
       const filtered = filterPoint(point, previousPoints[index], dt, width, height, beta);
       nextPoints[index] = filtered;
       return { ...point, x: filtered.x / width, y: filtered.y / height };
-    });
-    // Keep the legacy body-index view geometrically consistent without adding
-    // absent points or changing detector responses and confidence metadata.
-    if (Array.isArray(output.landmarks)) output.landmarks = output.landmarks.map((point, index) => {
-      const sourceIndex = RTMW_TO_BODY_LANDMARKS[index];
-      const source = sourceIndex == null ? null : output.wholebodyLandmarks[sourceIndex];
-      return point && validPoint(source) ? { ...point, x: source.x, y: source.y } : point;
     });
     previousPoints = nextPoints; previousTime = time; previousTrackId = trackId;
     return output;

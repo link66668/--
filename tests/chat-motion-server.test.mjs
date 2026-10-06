@@ -8,20 +8,17 @@ import {startServer} from '../server.mjs';
 import {readSse,streamChat} from '../server/chat-stream.mjs';
 import {chatMotionTools} from '../server/chat-motion.mjs';
 import {MOTION_POSE_MODEL} from '../public/motion-models.js';
-import {toRtmwPipeline} from './helpers/motion-rtmw-pipeline.mjs';
+import {toMediaPipePipeline} from './helpers/motion-mediapipe-pipeline.mjs';
 import {analyzeMotion} from '../public/motion-analysis.js';
 import {buildMotionPoseData,buildFullMotionAnalysis} from '../public/motion-pose-data.js';
 
 const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ioAAAAASUVORK5CYII=';
 const localVideo=()=>({id:'local-video:'+randomUUID(),name:'训练.mp4',type:'video/mp4',size:1024});
 function input() {
-  const pipeline=toRtmwPipeline({duration:1,width:640,height:480,sampleFps:15,sourceFps:30,frames:Array.from({length:8},(_,i)=>({time:i/15,personCount:1,landmarks:Array.from({length:33},(_,j)=>({x:.2+j/100,y:.2+j/90,visibility:.98}))}))});
+  const pipeline=toMediaPipePipeline({duration:1,width:640,height:480,sampleFps:15,sourceFps:30,frames:Array.from({length:8},(_,i)=>({time:i/15,personCount:1,landmarks:Array.from({length:33},(_,j)=>({x:.2+j/100,y:.2+j/90,visibility:.98}))}))});
   pipeline.modelVersion=MOTION_POSE_MODEL.version;
-  for(const frame of pipeline.frames){
-    frame.worldLandmarks=frame.landmarks.map((point,index)=>point?{x:point.x-.5,y:point.y-.5,z:Math.sin(index)*.12,visibility:point.visibility}:null);
-    delete frame.wholebodyLandmarks;
-  }
-  return {reviewMode:'guided',actionConfirmed:true,selectedExerciseId:'squat',duration:1,keyframes:[{time:.2,mimeType:'image/png',data:png}],poseData:buildMotionPoseData(pipeline,{bodyOnly:true}),fullAnalysis:buildFullMotionAnalysis(analyzeMotion(pipeline.frames,pipeline),pipeline)};
+  for(const frame of pipeline.frames)frame.worldLandmarks.forEach((point,index)=>{if(point)point.z=Math.sin(index)*.12;});
+  return {reviewMode:'guided',actionConfirmed:true,selectedExerciseId:'squat',duration:1,keyframes:[{time:.2,mimeType:'image/png',data:png}],poseData:buildMotionPoseData(pipeline),fullAnalysis:buildFullMotionAnalysis(analyzeMotion(pipeline.frames,pipeline),pipeline)};
 }
 const guidedReply=()=>({selectionCheck:{status:'consistent',imageIndices:[0],evidence:'目标训练者徒手屈髋屈膝。'},verdict:{status:'standard'},feedback:[{title:'足部支撑',status:'good',source:'visual',imageIndices:[0],evidence:'可见双脚接地支撑。',correction:'继续保持全脚掌支撑。'}]});
 const toolCall=(videoId,exerciseId='squat')=>Response.json({choices:[{message:{content:'',tool_calls:[{id:'motion-call',type:'function',function:{name:'assess_motion_video',arguments:JSON.stringify({videoId,exerciseId})}}]},finish_reason:'tool_calls'}]});

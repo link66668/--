@@ -1,4 +1,4 @@
-// Full browser + HTTP integration. Synthetic RTMW-format observations drive UI
+// Full browser + HTTP integration. Synthetic MediaPipe 3D observations drive UI
 // tests; JPEG extraction, provider routing, sanitization, UI and storage are real.
 // The upstream model is explicitly mocked: this does not measure model accuracy.
 import assert from 'node:assert/strict';
@@ -10,7 +10,6 @@ import {motionExercises} from '../public/motion-catalog.js';
 import {mergeCoachAssessment} from '../public/motion-contract.js';
 import {analyzeMotion} from '../public/motion-analysis.js';
 import {buildMotionPoseData,buildFullMotionAnalysis} from '../public/motion-pose-data.js';
-import {mapWholebodyLandmarks,RTMW_TO_BODY_LANDMARKS} from '../public/motion-rtmw.js';
 import {getMotionPoseModel} from '../public/motion-models.js';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
@@ -20,11 +19,11 @@ if(!reportsOnly)await access(clip);await mkdir(join(root,'.qa'),{recursive:true}
 const dataDir=await mkdtemp(join(root,'.qa','motion-coach-ui-'));
 const fixture=JSON.parse(await readFile(join(root,'tests/fixtures/motion-squat-real.json'),'utf8'));
 // Body positions derive from an old numerical fixture; remaining points are
-// synthetic placeholders. This does not assert RTMW inference or accuracy.
-const pipeline={...fixture.options,sourceFps:30,sampleFps:15,modelVersion:getMotionPoseModel('rtmw').version,elapsedMs:1,decoder:'QA synthetic RTMW-format observations',frames:fixture.frames.map(([time,points])=>{
- const wholebodyLandmarks=Array.from({length:133},()=>({x:0,y:0,score:0}));
- fixture.landmarkIndices.forEach((index,i)=>{const target=RTMW_TO_BODY_LANDMARKS[index];if(Number.isInteger(target)){const [x,y,score]=points[i];wholebodyLandmarks[target]={x,y,score};}});
- return {time,wholebodyLandmarks,landmarks:mapWholebodyLandmarks(wholebodyLandmarks),personCount:1};
+// synthetic placeholders. This does not assert MediaPipe inference or accuracy.
+const pipeline={...fixture.options,sourceFps:30,sampleFps:15,modelVersion:getMotionPoseModel('mediapipe-full').version,elapsedMs:1,decoder:'QA synthetic MediaPipe 3D observations',frames:fixture.frames.map(([time,points])=>{
+ const landmarks=Array(33).fill(null),worldLandmarks=Array(33).fill(null);
+ fixture.landmarkIndices.forEach((index,i)=>{const [x,y,visibility]=points[i];landmarks[index]={x,y,visibility};worldLandmarks[index]={x:x-.5,y:y-.5,z:(index%3-1)*.04,visibility};});
+ return {time,worldLandmarks,landmarks,personCount:1};
 })};
 const source=await readFile(join(root,'public/motion-video.js'),'utf8');
 // Align this synthetic replay with the supplied clip so real JPEG extraction
@@ -93,7 +92,7 @@ page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{
  browserRequests.push({url:r.url(),method:r.method()});if(/^https?:/.test(r.url())&&!r.url().startsWith(base))external.push(r.url());
  if(r.method()==='POST'&&r.url()===base+'/api/motion/coach'){
   const body=r.postDataJSON();motionRequests.push({reviewMode:body.reviewMode,selectedExerciseId:body.selectedExerciseId,schemaVersion:body.poseData.schemaVersion,format:body.poseData.format,
-   frameCount:body.poseData.frameCount,hasRawWholebody:body.poseData.frames.some(frame=>Object.hasOwn(frame,'wholebodyLandmarks')),
+   frameCount:body.poseData.frameCount,hasWorldBody:body.poseData.frames.some(frame=>frame.worldLandmarks?.some(point=>point&&point.length===4)),
    retainedLandmarkIndices:body.poseData.retainedLandmarkIndices});
  }
 });
@@ -108,7 +107,7 @@ const confirm=async(exerciseId='squat')=>{
 };
 const reconfirm=async()=>{await page.locator('[data-motion-action="coach"]').click();await confirm();};
 const analyze=async({selectTarget=false,waitForCoach=true,exerciseId='squat'}={})=>{
- await page.locator('[data-motion-pose-model]').selectOption('rtmw');
+ await page.locator('[data-motion-pose-model]').selectOption('mediapipe-full');
  await page.locator('[data-motion-file]').setInputFiles(clip);await page.waitForFunction(()=>!document.querySelector('[data-motion-action="analyze"]')?.disabled);
  if(selectTarget){
   await page.locator('[data-motion-video]').evaluate(v=>{v.currentTime=3;});await page.waitForFunction(()=>!document.querySelector('[data-motion-video]').seeking);
@@ -186,8 +185,8 @@ try{
  assert.equal(evidence.sourceFrameIndices[0],0);assert.equal(evidence.sourceFrameIndices.at(-1),pipeline.frames.length-1);
  assert.equal(evidence.windows.reduce((sum,window)=>sum+window.sourceFrameCount,0),pipeline.frames.length);
  assert.equal(motionRequests[0].reviewMode,'recognize');assert.equal(motionRequests[0].selectedExerciseId,undefined);
- assert.deepEqual(motionRequests[1],{reviewMode:'guided',selectedExerciseId:'squat',schemaVersion:3,format:'rtmw-body17-full',frameCount:pipeline.frames.length,
-  hasRawWholebody:false,retainedLandmarkIndices:[0,11,12,13,14,15,16,23,24,25,26,27,28,29,30,31,32]});
+ assert.deepEqual(motionRequests[1],{reviewMode:'guided',selectedExerciseId:'squat',schemaVersion:6,format:'mediapipe-world17-full',frameCount:pipeline.frames.length,
+  hasWorldBody:true,retainedLandmarkIndices:[0,11,12,13,14,15,16,23,24,25,26,27,28,29,30,31,32]});
  assert.equal(await page.locator('.motion-ai-feedback').count(),1);assert(guidedCalls[0].imageCount>0);assert.equal(calls.filter(call=>['context','synthesis','full-data','temporal-evidence','visual-keyframes'].includes(call.input.stage)).length,0);
  assert.equal(await page.locator('[data-motion-selection-check]').getAttribute('data-motion-selection-check'),'consistent');
  assert.match(await page.locator('.motion-ai-feedback').textContent(),/可见支撑位置/);
@@ -244,7 +243,7 @@ try{
  assert.equal((await saveProviderSettings({providers:[provider],tasks:{motion:provider.id},taskModels:{motion:'qa-motion-vision'}})).status(),200);
  const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1sAAAAASUVORK5CYII=';
  const shortPipeline={...pipeline,duration:3,frames:pipeline.frames.filter(frame=>frame.time<=3)};
- const reportInput={reviewMode:'efficient',duration:3,poseData:buildMotionPoseData(shortPipeline,{bodyOnly:true}),fullAnalysis:buildFullMotionAnalysis(analyzeMotion(shortPipeline.frames,shortPipeline),shortPipeline)};
+ const reportInput={reviewMode:'efficient',duration:3,poseData:buildMotionPoseData(shortPipeline),fullAnalysis:buildFullMotionAnalysis(analyzeMotion(shortPipeline.frames,shortPipeline),shortPipeline)};
  const changes=[];
  for(const [id,equipment,support]of [['bench','dumbbell','flat-bench'],['barbell-bench','barbell','flat-bench'],['smith-bench','smith-machine','flat-bench'],['machine-row','machine','seated']]){
   equipmentAction={exerciseId:id,name:motionExercises.find(item=>item.id===id).name,status:'identified',confidence:'high',evidenceTimes:[1,2],observations:{equipment,support,movement:id==='machine-row'?'row':'horizontal-press',laterality:'bilateral',evidence:'两个提供画面中可见同一训练者的负重、支撑面与推拉变化。',evidenceTimes:[1,2]}};

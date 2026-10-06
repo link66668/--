@@ -132,7 +132,7 @@ async function analyzeSoftwareVideo(file, metadata, { signal, onProgress, target
 }
 
 /** Analyze each configured sample position across the entire local video.
- * Pixels stay on this device. Decoder queues are bounded; software ONNX
+ * Pixels stay on this device. Decoder queues are bounded; software video
  * decoding holds at most 16 scaled frames / 32 MiB, HTMLVideo two bitmaps.
  * Cancellation terminates the worker immediately, including native inference.
  */
@@ -240,9 +240,9 @@ export async function analyzeVideo(file, { signal: externalSignal, onProgress = 
       nextFramePromise = index + 1 < times.length ? decodeFrame(times[index + 1]) : Promise.resolve(undefined);
       const [result, nextBitmap] = await Promise.all([request, nextFramePromise]);
       bitmap = nextBitmap; nextFramePromise = undefined;
-      const { landmarks, wholebodyLandmarks, worldLandmarks, personCount, multiPersonCheck, subjectTracking, inferenceMs } = result;
+      const { landmarks, worldLandmarks, personCount, multiPersonCheck, subjectTracking, inferenceMs } = result;
       timing.inferenceMs += inferenceMs;
-      frames.push({ time, landmarks, wholebodyLandmarks, ...(Array.isArray(worldLandmarks) ? {worldLandmarks} : {}), personCount, multiPersonCheck, subjectTracking });
+      frames.push({ time, landmarks, worldLandmarks: Array.isArray(worldLandmarks) ? worldLandmarks : [], personCount, multiPersonCheck, subjectTracking });
       onProgress({ stage: 'analyzing', progress: (index + 1) / times.length, processedFrames: index + 1, totalFrames: times.length, time, delegate, message: '正在逐帧分析动作…' });
     }
     await engine.request({ type: 'close' });

@@ -1,4 +1,4 @@
-// Real RTMW-L target-selection QA; requires local videos from the fixture scripts.
+// Real MediaPipe Full target-selection QA; requires local videos from the fixture scripts.
 // QA_PLAYWRIGHT=/path/to/playwright/index.mjs QA_BROWSER=/path/to/browser node scripts/qa-motion-target.mjs
 // Coordinate GPU use with other browser QA jobs. Images/frames stay under .qa.
 // QA_TARGET_REPLAY=/path/to/prior/output reruns semantic checks without browser/GPU inference.
@@ -74,7 +74,7 @@ try {
     const expectedTopKeys = ['measurements', 'quality', 'version'];
     if (JSON.stringify(Object.keys(analysis).sort()) !== JSON.stringify(expectedTopKeys)) violations.push('Analysis includes fields outside objective observations');
     if (JSON.stringify(Object.keys(analysis.quality).sort()) !== JSON.stringify(['reasons', 'sourceFps', 'targetCoverage', 'totalFrames', 'usableRatio', 'validFrames'])) violations.push('Data quality includes non-observation fields');
-    if (analysis.version !== 'motion-observations-v1') violations.push('Unexpected observation schema version');
+    if (analysis.version !== 'motion-observations-3d-v1' || analysis.coordinateSpace !== 'mediapipe-world-3d') violations.push('Unexpected observation schema or coordinate space');
     if (analysis.measurements.length !== frames.length || analysis.quality.totalFrames !== frames.length) violations.push('Not every input frame has a measurement row');
     const angleKeys = ['bodyAlignmentAngle', 'elbowAngle', 'hipAngle', 'kneeAngle', 'shoulderAngle', 'torsoLean'];
     let measuredFrames = 0;

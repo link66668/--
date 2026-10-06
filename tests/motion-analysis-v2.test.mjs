@@ -11,7 +11,8 @@ function frame(time = 0) {
       landmarks[index + side] = {x: x + side * 0.1, y, visibility: 0.99};
     });
   }
-  return {time, landmarks};
+  // Known synthetic XYZ geometry tests target continuity, not model accuracy.
+  return {time, landmarks, worldLandmarks: landmarks.map(point => point && ({x: point.x - .5, y: point.y - .5, z: 0, visibility: point.visibility}))};
 }
 const trackedFrame = (time, change = {}) => ({...frame(time), personCount: 2, subjectTracking: {status: 'locked', confidence: 0.9, trackId: 'selected-person', ...change}});
 const allNull = row => [...Object.values(row.left), ...Object.values(row.right)].every(value => value === null);
@@ -95,32 +96,22 @@ test('a missing tracking frame does not discard neighboring measurements or inve
   close(result.measurements[2].left.hipAngle, 180);
 });
 
-test('real extracted squat poses retain every frame with reproducible aspect-correct angles', () => {
-  const fixture = fixtureFrames('squat');
-  const result = analyzeMotion(fixture.frames, fixture.options);
-  assert.equal(result.measurements.length, 168);
-  assert.equal(result.quality.validFrames, 168);
-  assert.equal(result.measurements[0].left.elbowAngle, null); // Low visibility in the real recording.
-  close(result.measurements[0].right.elbowAngle, 80.61684357892022);
-  close(result.measurements[20].right.kneeAngle, 94.71894149773789);
-  close(result.measurements[20].left.torsoLean, 36.085425305681696);
-  close(result.measurements.at(-1).right.hipAngle, 177.29029089135122);
-  assert.equal(result.measurements.at(-1).time, fixture.frames.at(-1).time);
-});
+for (const [name, count] of [['squat', 168], ['pushup', 267]]) {
+  test(`historical ${name} image-only observations preserve timing without fabricating 3D angles`, () => {
+    const fixture = fixtureFrames(name);
+    assert(fixture.frames.every(sample => !Object.hasOwn(sample, 'worldLandmarks')));
+    const result = analyzeMotion(fixture.frames, fixture.options);
+    assert.equal(result.version, 'motion-observations-3d-v1');
+    assert.equal(result.coordinateSpace, 'mediapipe-world-3d');
+    assert.equal(result.measurements.length, count);
+    assert.equal(result.quality.validFrames, 0);
+    assert(result.quality.reasons.includes('MISSING_OR_UNCERTAIN_LANDMARKS'));
+    assert(result.measurements.every(allNull));
+    assert.deepEqual(result.measurements.map(row => row.time), fixture.frames.map(sample => sample.time));
+  });
+}
 
-test('real extracted push-up poses retain both partial and visible sides without inferring depth or form labels', () => {
-  const fixture = fixtureFrames('pushup');
-  const result = analyzeMotion(fixture.frames, fixture.options);
-  assert.equal(result.measurements.length, 267);
-  assert.equal(result.quality.validFrames, 267);
-  assert.equal(result.measurements[0].left.kneeAngle, null);
-  close(result.measurements[0].right.elbowAngle, 169.28142470032796);
-  close(result.measurements[20].right.bodyAlignmentAngle, 175.16832761345665);
-  close(result.measurements.at(-1).right.elbowAngle, 61.368702365148);
-  assert.deepEqual(Object.keys(result).sort(), ['measurements', 'quality', 'version']);
-});
-
-test('real pose observations are unchanged by horizontal mirroring including missing-value positions', () => {
+test('transforming historical image positions cannot restore unobserved depth', () => {
   for (const name of ['squat', 'pushup']) {
     const fixture = fixtureFrames(name);
     const reference = analyzeMotion(fixture.frames, fixture.options);

@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {startServer} from '../server.mjs';
 import {consumeChatEvents} from '../public/chat-stream.js';
-import {toRtmwPipeline} from './helpers/motion-rtmw-pipeline.mjs';
+import {toMediaPipePipeline} from './helpers/motion-mediapipe-pipeline.mjs';
 import {analyzeMotion} from '../public/motion-analysis.js';
 import {buildMotionPoseData, buildFullMotionAnalysis} from '../public/motion-pose-data.js';
 import {validateMotionCoachRequest, completeMotionCoach} from '../server/motion-coach.mjs';
@@ -24,8 +24,8 @@ function request({count = 30, world3d = false} = {}) {
       ...(world3d ? {worldLandmarks: Array.from({length: 33}, (_, index) => ({x: -.7 + index / 20 + Math.sin(frameIndex / 5) / 10,
         y: -1.3 + index / 25, z: -2.2 + Math.cos(frameIndex / 6 + index) / 3, visibility: .98}))} : {}),
     }))};
-  if (!world3d) pipeline = toRtmwPipeline(pipeline);
-  return {reviewMode: 'recognize', duration: pipeline.duration, poseData: buildMotionPoseData(pipeline, {bodyOnly: true}),
+  if (!world3d) pipeline = toMediaPipePipeline(pipeline);
+  return {reviewMode: 'recognize', duration: pipeline.duration, poseData: buildMotionPoseData(pipeline),
     fullAnalysis: buildFullMotionAnalysis(analyzeMotion(pipeline.frames, pipeline), pipeline),
     keyframes: [.8, .2].map(time => ({time, mimeType: 'image/png', data: png}))};
 }

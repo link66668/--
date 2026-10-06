@@ -15,13 +15,12 @@ async function analyzeFrame(image, timestampMs, sourceTime) {
     && previousDecodedInference.sourceTime === sourceTime;
   const result = repeated ? previousDecodedInference.result : await pose.detect(image, timestampMs);
   previousDecodedInference = Number.isFinite(sourceTime) ? { image, sourceTime, result } : undefined;
-  const selected = tracker.update(result.landmarks, timestampMs / 1000, {detectionBoxes:result.detectionBoxes});
+  const selected = tracker.update(result.landmarks, timestampMs / 1000);
   const index = selected.index;
   return {
     personCount: result.landmarks.length, multiPersonCheck: true, subjectTracking: selected.subjectTracking,
     landmarks: index === null ? [] : result.landmarks[index],
-    ...(result.worldLandmarks ? { worldLandmarks: index === null ? [] : result.worldLandmarks[index] ?? [] } : {}),
-    ...(result.wholebodyLandmarks ? { wholebodyLandmarks: index === null ? [] : result.wholebodyLandmarks[index] } : {}),
+    worldLandmarks: index === null ? [] : result.worldLandmarks?.[index] ?? [],
     inferenceMs: performance.now() - started,
   };
 }
@@ -41,16 +40,8 @@ self.onmessage = async ({ data }) => {
       const model = getMotionPoseModel(data.model);
       const { validateTargetPoint, createSubjectTracker } = await import('./motion-tracking.js');
       tracker = createSubjectTracker({ targetPoint: validateTargetPoint(data.targetPoint) });
-      if (model.id === 'mediapipe-full') {
-        const { createMediaPipe } = await import('./motion-mediapipe.js');
-        pose = await createMediaPipe({ delegate: data.delegate });
-      } else if (model.id === 'yolo26') {
-        const { createYolo26 } = await import('./motion-yolo26.js');
-        pose = await createYolo26({ delegate: data.delegate });
-      } else {
-        const { createRtmw } = await import('./motion-rtmw.js');
-        pose = await createRtmw({ delegate: data.delegate });
-      }
+      const { createMediaPipe } = await import('./motion-mediapipe.js');
+      pose = await createMediaPipe({ model: model.id, delegate: data.delegate });
       previousDecodedInference = undefined;
       self.postMessage({ id, delegate: pose.delegate, modelVersion: model.version });
     } else if (type === 'prepare-source') {

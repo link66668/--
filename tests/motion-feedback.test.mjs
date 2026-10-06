@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {sanitizeMotionFeedback} from '../public/motion-feedback.js';
 
 const point = () => [0.5, 0.5, 0.95];
-const pose = (count = 20) => ({duration: count / 15, frames: Array.from({length: count}, (_, index) => ({time: index / 15, landmarks: Array.from({length: 33}, point), personCount: 1}))});
+const pose = (count = 20) => ({duration: count / 15, frames: Array.from({length: count}, (_, index) => ({time: index / 15, landmarks: Array.from({length: 33}, point), worldLandmarks: Array.from({length: 33}, () => [-.2, .1, -.3, .95]), personCount: 1}))});
 const finding = extra => ({title: '后半程动作幅度变化', status: 'improve', source: 'pose', frameIndices: [1, 10, 19], evidenceTimes: [], evidence: '后几次肩关节活动幅度逐渐缩小。', correction: '减轻重量，保持前后几次相近的活动幅度。', priority: 1, ...extra});
 
 test('pose feedback retains real non-image timestamps and does not require a catalog check code', () => {
@@ -95,7 +95,7 @@ test('low-confidence and explicitly unknown points cannot establish reliable pos
   for (const index of [11, 13, 15]) poseData.frames[1].landmarks[index] = [0.5, 0.5, 0.9, 0];
   assert.equal(sanitizeMotionFeedback([finding({frameIndices: [1]})], {poseData}).length, 1, 'Explicit zero missingMask retains observed image joints');
   for (const index of [11, 13, 15]) poseData.frames[1].landmarks[index] = [0.5, 0.5, 0.9];
-  assert.equal(sanitizeMotionFeedback([finding({frameIndices: [1]})], {poseData}).length, 1, 'Unmasked RTMW tuples use their observed confidence directly');
+  assert.equal(sanitizeMotionFeedback([finding({frameIndices: [1]})], {poseData}).length, 1, 'Unmasked MediaPipe tuples use their observed confidence directly');
 });
 
 test('original object landmarks are supported without treating unknown visibility as confidence', () => {
@@ -185,4 +185,17 @@ test('measured angles do not establish equipment or spinal neutrality, and impro
  const fullAnalysis=completeMeasurements();
  assert.equal(sanitizeMotionFeedback([measuredFinding({evidence:'器械类型为杠铃，腰椎中立已经确认。'})],{fullAnalysis}).length,0);
  assert.equal(sanitizeMotionFeedback([measuredFinding({correction:''})],{fullAnalysis}).length,0);
+});
+
+// A visible 2D skeleton never substitutes for absent or unreliable depth.
+test('pose evidence requires reliable XYZ observations and accepts signed metric coordinates', () => {
+  for (const change of [frame => {delete frame.worldLandmarks;}, frame => {frame.worldLandmarks=[];},
+    frame => {frame.worldLandmarks=Array(33).fill([0,0,null,.9]);},
+    frame => {frame.worldLandmarks=Array(33).fill([0,0,1,.54]);},
+    frame => {frame.worldLandmarks=Array(33).fill([0,0,null,.9,4]);}]) {
+    const poseData=pose(); change(poseData.frames[1]);
+    assert.deepEqual(sanitizeMotionFeedback([finding({frameIndices:[1]})],{poseData}),[]);
+  }
+  const poseData=pose(); poseData.frames[1].worldLandmarks=Array(33).fill([-1.2,2.3,-3.4,.95]);
+  assert.equal(sanitizeMotionFeedback([finding({frameIndices:[1]})],{poseData}).length,1);
 });

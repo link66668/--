@@ -1,4 +1,4 @@
-import {toRtmwPipeline} from './helpers/motion-rtmw-pipeline.mjs';
+import {toMediaPipePipeline} from './helpers/motion-mediapipe-pipeline.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm,readFile} from 'node:fs/promises';
@@ -16,7 +16,7 @@ const images=[{time:0.2,mimeType:'image/png',data:png},{time:0.8,mimeType:'image
 const source=JSON.parse(await readFile(new URL('./fixtures/motion-squat-real.json',import.meta.url),'utf8'));
 function request(){
  const frames=source.frames.slice(0,3).map(([time,points])=>{const landmarks=Array(33).fill(null);source.landmarkIndices.forEach((index,i)=>{const[x,y,visibility]=points[i];landmarks[index]={x,y,visibility};});return{time,landmarks,personCount:1};});
- const pipeline=toRtmwPipeline({...source.options,duration:1.5,sourceFps:30,sampleFps:15,frames});
+ const pipeline=toMediaPipePipeline({...source.options,duration:1.5,sourceFps:30,sampleFps:15,frames});
  const fullAnalysis=buildFullMotionAnalysis(analyzeMotion(pipeline.frames,pipeline),pipeline);
  return{duration:1.5,analysis:compactMotionAnalysis(fullAnalysis),fullAnalysis,poseData:buildMotionPoseData(pipeline),keyframes:images};
 }

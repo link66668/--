@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createSubjectTracker, validateTargetPoint, summarizeTargetTracking} from '../public/motion-tracking.js';
 import {analyzeVideo} from '../public/motion-video.js';
-import {readFile} from 'node:fs/promises';
 
 function person(x=.5,y=.5,scale=1) {
   const points=Array.from({length:33},()=>({x,y:y-.25*scale,visibility:.95}));
@@ -147,15 +146,15 @@ test('a nearby standing background pose cannot compete with a continuous horizon
   assert.equal(selected.index,1);assert.equal(selected.subjectTracking.status,'locked');
 });
 
-test('real duplicate detections of one articulated body do not permanently halt its track',async()=>{
-  const fixture=JSON.parse(await readFile(new URL('./fixtures/motion-duplicate-candidates.json',import.meta.url),'utf8'));
-  assert.equal(fixture.frames[2].candidates.length,3,'the failing frame contains a duplicated target and a distant candidate');
+test('near-identical 33-point observations retain a moving target regardless of candidate order',()=>{
   for(const reverse of [false,true]){
     const tracker=createSubjectTracker();
-    for(const frame of fixture.frames){
-      const candidates=reverse?frame.candidates.toReversed():frame.candidates;
-      const result=tracker.update(candidates,frame.time);
-      assert.equal(result.subjectTracking.status,'locked',`time ${frame.time}, reversed ${reverse}`);
+    for(let index=0;index<5;index++){
+      const target=person(.5+index*.005),duplicate=target.map((point,joint)=>({...point,x:point.x+(joint%2?.001:-.001)}));
+      const candidates=[target,duplicate,person(.9)];
+      if(reverse)candidates.reverse();
+      const result=tracker.update(candidates,index/15);
+      assert.equal(result.subjectTracking.status,'locked',`frame ${index}, reversed ${reverse}`);
       assert(candidates[result.index][11].x<.7,'the distant background candidate cannot inherit the target');
     }
   }
@@ -178,59 +177,42 @@ test('partial body observations cannot justify deduplicating two candidates',()=
   assert.equal(createSubjectTracker().update([first,partial],0).subjectTracking.status,'ambiguous');
 });
 
-test('real partial detector fragments do not steal identity or permanently stop an otherwise continuous target',async()=>{
-  const fixture=JSON.parse(await readFile(new URL('./fixtures/motion-partial-detection-traces.json',import.meta.url),'utf8'));
-  for(const example of fixture.cases)for(const reverse of [false,true]){
-    const tracker=createSubjectTracker();
-    for(const frame of example.frames){
-      const candidates=reverse?frame.candidates.toReversed():frame.candidates;
-      const detectionBoxes=reverse?frame.detectionBoxes.toReversed():frame.detectionBoxes;
-      const result=tracker.update(candidates,frame.time,{detectionBoxes});
-      assert.equal(result.subjectTracking.status,frame.status,`${example.id} time ${frame.time}, reversed ${reverse}`);
-      if(frame.status==='lost'){
-        assert.equal(result.index,null);
-        assert.equal(result.subjectTracking.reason,'partial-detections-unresolved');
-      }else{
-        const shoulderX=(candidates[result.index][11].x+candidates[result.index][12].x)/2;
-        assert(shoulderX>.2&&shoulderX<.75,`${example.id}: a background person cannot inherit the target`);
-      }
-    }
-  }
-});
-
-test('a repeated upper-body view with collapsed legs retains the complete body in either candidate order',()=>{
+test('coincident upper bodies with different legs cannot establish duplicate identity',()=>{
   const target=person(.5),partial=person(.5);
   for(const [knee,ankle,hip]of [[25,27,23],[26,28,24]]){
     partial[knee]={...partial[hip]};partial[ankle]={...partial[hip]};
   }
   for(const candidates of [[target,partial],[partial,target]]){
     const result=createSubjectTracker().update(candidates,0);
-    assert.equal(result.subjectTracking.status,'locked');
-    assert.strictEqual(candidates[result.index],target);
+    assert.equal(result.subjectTracking.status,'ambiguous');
+    assert.equal(result.index,null);
   }
 });
 
-test('detector-supported genuine crossings halt and cannot resume on the other person',()=>{
-  const tracker=createSubjectTracker(),options={detectionBoxes:[[0,0,1,1],[0,0,1,1]]};
-  tracker.update([person(.5),person(.8)],0,options);
-  const crossing=tracker.update([person(.53),person(.57)],1/15,options);
+test('crossings of two visible bodies halt and cannot resume on the other person',()=>{
+  const tracker=createSubjectTracker();
+  tracker.update([person(.5),person(.8)],0);
+  const crossing=tracker.update([person(.53),person(.57)],1/15);
   assert.equal(crossing.subjectTracking.status,'ambiguous');
   assert.equal(crossing.subjectTracking.reason,'overlapping-targets-retry-selection');
-  assert.equal(tracker.update([person(.46),person(.64)],2/15,options).index,null);
+  assert.equal(tracker.update([person(.46),person(.64)],2/15).index,null);
 });
 
 test('an incomplete candidate cannot attract the selected complete body or extend the recovery window',()=>{
-  const tracker=createSubjectTracker();tracker.update([person(.5)],0,{detectionBoxes:[[0,0,1,1]]});
+  const tracker=createSubjectTracker();tracker.update([person(.5)],0);
   const partial=person(.5),target=person(.51);
-  const selected=tracker.update([partial,target],1/15,{detectionBoxes:[[.4,.48,.6,.65],[0,0,1,1]]});
-  assert.equal(selected.index,null,'closer but cropped candidates must not silently choose an identity');
+  for(const index of [25,26,27,28])partial[index].visibility=.1;
+  const selected=tracker.update([partial,target],1/15);
+  assert.equal(selected.index,null,'closer but incomplete candidates must not silently choose an identity');
   assert.equal(selected.subjectTracking.status,'lost');
-  const recovered=tracker.update([target],2/15,{detectionBoxes:[[0,0,1,1]]});
+  const recovered=tracker.update([target],2/15);
   assert.equal(recovered.subjectTracking.status,'locked');
   assert.equal(recovered.index,0);
   const absent=createSubjectTracker();absent.update([person(.5)],0);
-  assert.equal(absent.update([person(.5),person(.51)],1,{detectionBoxes:[[.4,.48,.6,.65],[.4,.48,.6,.65]]}).index,null);
-  assert.equal(absent.update([person(.5)],3.01,{detectionBoxes:[[0,0,1,1]]}).subjectTracking.reason,'target-lost-retry-selection');
+  const alternatives=[person(.5),person(.51)];
+  for(const candidate of alternatives)for(const index of [25,26,27,28])candidate[index].visibility=.1;
+  assert.equal(absent.update(alternatives,1).index,null);
+  assert.equal(absent.update([person(.5)],3.01).subjectTracking.reason,'target-lost-retry-selection');
 });
 
 test('default prominence does not override explicit selection of a smaller person',()=>{
@@ -246,29 +228,29 @@ test('default prominence does not override explicit selection of a smaller perso
 
 test('a suddenly larger torso with obscured legs cannot inherit an observed full-body target',()=>{
   const tracker=createSubjectTracker(),target=person(.5,.45),passer=person(.5,.45,2);
-  tracker.update([target],0,{detectionBoxes:[[0,0,1,1]]});
+  tracker.update([target],0);
   for(const time of [.133,.266,1]){
-    const result=tracker.update([passer],time,{detectionBoxes:[[0,0,1,1]]});
+    const result=tracker.update([passer],time);
     assert.equal(result.index,null);
     assert.equal(result.subjectTracking.status,'lost');
   }
-  const recovered=tracker.update([person(.51,.45)],1.2,{detectionBoxes:[[0,0,1,1]]});
+  const recovered=tracker.update([person(.51,.45)],1.2);
   assert.equal(recovered.subjectTracking.status,'locked');
   assert.equal(recovered.index,0);
-  const zoom=createSubjectTracker();zoom.update([person(.5,.45,.6)],0,{detectionBoxes:[[0,0,1,1]]});
-  assert.equal(zoom.update([person(.5,.45,1.2)],.133,{detectionBoxes:[[0,0,1,1]]}).subjectTracking.status,'locked','observed whole-body scale changes retain the existing continuity bounds');
+  const zoom=createSubjectTracker();zoom.update([person(.5,.45,.6)],0);
+  assert.equal(zoom.update([person(.5,.45,1.2)],.133).subjectTracking.status,'locked','observed whole-body scale changes retain the existing continuity bounds');
 });
 
-test('real initial background people and near-camera occluders never replace the foreground trainee',async()=>{
-  const fixture=JSON.parse(await readFile(new URL('./fixtures/motion-identity-traces.json',import.meta.url),'utf8'));
-  for(const example of fixture.cases)for(const reverse of [false,true]){
-    const tracker=createSubjectTracker();
-    for(const frame of example.frames){
-      const candidates=reverse?frame.candidates.toReversed():frame.candidates;
-      const detectionBoxes=reverse?frame.detectionBoxes.toReversed():frame.detectionBoxes;
-      const result=tracker.update(candidates,frame.time,{detectionBoxes});
-      assert.equal(result.index===null?'lost':'locked',frame.expectedIndex===null?'lost':'locked',`${example.id} @ ${frame.time}, reverse ${reverse}`);
-      if(frame.expectedIndex!==null)assert.strictEqual(candidates[result.index],frame.candidates[frame.expectedIndex],`${example.id} @ ${frame.time}, reverse ${reverse}`);
-    }
-  }
+test('MediaPipe visibility is required for both torso and leg support during recovery',()=>{
+  const target=person(.5,.45),passer=person(.5,.45,1.7);
+  for(const index of [11,27,28])passer[index].visibility=.1;
+  const tracker=createSubjectTracker();
+  assert.equal(tracker.update([target],0).subjectTracking.status,'locked');
+  const occluded=tracker.update([passer],.133);
+  assert.equal(occluded.index,null);
+  assert.equal(occluded.subjectTracking.reason,'occluded-target-size-discontinuity');
+  const returned=person(.51,.45),background=person(.8,.45,.5);
+  const recovered=tracker.update([background,returned],.4);
+  assert.equal(recovered.subjectTracking.status,'locked');
+  assert.equal(recovered.index,1);
 });

@@ -136,9 +136,9 @@ test('a response for a different confirmed exercise is rejected and stays unsave
 
 test('pose-model and target changes discard recognition and require new extraction',async t=>{
   const h=setup(t);await h.file();h.click('analyze');await until(h.confirming);
-  const input=h.find('[data-motion-pose-model]');input.value='yolo26';input.fire('change');
+  const input=h.find('[data-motion-pose-model]');input.value='mediapipe-heavy';input.fire('change');
   assert.equal(h.find('[data-motion-confirmation]').hidden,true);assert.equal(h.find('[data-motion-exercise]').value,'');
-  h.click('analyze');await until(h.confirming);assert.equal(h.analysisCalls.length,2);assert.equal(h.analysisCalls[1].options.model,'yolo26');
+  h.click('analyze');await until(h.confirming);assert.equal(h.analysisCalls.length,2);assert.equal(h.analysisCalls[1].options.model,'mediapipe-heavy');
   h.click('reset-target');assert.equal(h.find('[data-motion-confirmation]').hidden,true);
   h.click('analyze');await until(h.confirming);assert.equal(h.analysisCalls.length,3);
 });

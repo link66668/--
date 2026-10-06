@@ -1,10 +1,9 @@
 /**
  * Objective measurements of the selected person's pose. MediaPipe world data
- * supplies estimated 3D angles; other models retain image-plane measurements.
- * Neither coordinate space determines exercise technique or clinical anatomy.
+ * supplies estimated 3D angles for all model tiers; image data only gates visibility.
+ * These observations do not determine exercise technique or clinical anatomy.
  */
-export const MOTION_OBSERVATION_VERSION = 'motion-observations-v1';
-export const MOTION_3D_OBSERVATION_VERSION = 'motion-observations-3d-v1';
+export const MOTION_OBSERVATION_VERSION = 'motion-observations-3d-v1';
 
 const SIDES = [[11, 13, 15, 23, 25, 27], [12, 14, 16, 24, 26, 28]];
 const MEASUREMENTS = ['elbowAngle', 'shoulderAngle', 'hipAngle', 'kneeAngle', 'bodyAlignmentAngle', 'torsoLean'];
@@ -30,15 +29,6 @@ function worldPoint(value, imageValue, width, height) {
   return {x: value.x, y: value.y, z: value.z};
 }
 
-function angleAt(a, b, c) {
-  if (!a || !b || !c) return null;
-  const ax = a.x - b.x, ay = a.y - b.y, cx = c.x - b.x, cy = c.y - b.y;
-  const firstLength = Math.hypot(ax, ay), secondLength = Math.hypot(cx, cy);
-  if (!(firstLength > 0) || !(secondLength > 0) || !Number.isFinite(firstLength) || !Number.isFinite(secondLength)) return null;
-  const cosine = (ax / firstLength) * (cx / secondLength) + (ay / firstLength) * (cy / secondLength);
-  return Math.acos(Math.max(-1, Math.min(1, cosine))) * 180 / Math.PI;
-}
-
 function angleAt3D(a, b, c) {
   if (!a || !b || !c) return null;
   const ax = a.x - b.x, ay = a.y - b.y, az = a.z - b.z;
@@ -49,12 +39,10 @@ function angleAt3D(a, b, c) {
   return Math.acos(Math.max(-1, Math.min(1, cosine))) * 180 / Math.PI;
 }
 
-function measureSide(frame, side, width, height, useWorld) {
-  const [shoulder, elbow, wrist, hip, knee, ankle] = SIDES[side].map(index => useWorld
-    ? worldPoint(frame?.worldLandmarks?.[index], frame?.landmarks?.[index], width, height)
-    : imagePoint(frame?.landmarks?.[index], width, height));
-  const angle = useWorld ? angleAt3D : angleAt;
-  const lateral = shoulder && hip ? (useWorld ? Math.hypot(shoulder.x - hip.x, shoulder.z - hip.z) : Math.abs(shoulder.x - hip.x)) : 0;
+function measureSide(frame, side, width, height) {
+  const [shoulder, elbow, wrist, hip, knee, ankle] = SIDES[side].map(index => worldPoint(frame?.worldLandmarks?.[index], frame?.landmarks?.[index], width, height));
+  const angle = angleAt3D;
+  const lateral = shoulder && hip ? Math.hypot(shoulder.x - hip.x, shoulder.z - hip.z) : 0;
   const vertical = shoulder && hip ? Math.abs(shoulder.y - hip.y) : 0;
   const torsoLength = Math.hypot(lateral, vertical);
   return {
@@ -63,7 +51,7 @@ function measureSide(frame, side, width, height, useWorld) {
     hipAngle: angle(shoulder, hip, knee),
     kneeAngle: angle(hip, knee, ankle),
     bodyAlignmentAngle: angle(shoulder, hip, ankle),
-    // Unsigned angle to image vertical (2D) or estimated world Y (3D), 0–90.
+    // Unsigned angle to estimated world Y, 0–90.
     // MediaPipe's world Y is not a calibrated gravity axis.
     torsoLean: torsoLength > 0 && Number.isFinite(torsoLength)
       ? Math.atan2(lateral, vertical) * 180 / Math.PI : null,
@@ -80,9 +68,8 @@ function measureSide(frame, side, width, height, useWorld) {
  * @param {Array<{time:number,landmarks:Array,worldLandmarks?:Array,subjectTracking?:object,personCount?:number}>} frames
  * @param {{width:number,height:number,duration?:number,sourceFps?:number|null,modelVersion?:string}} options Original display dimensions after rotation.
  */
-export function analyzeMotion(frames, {width, height, sourceFps, modelVersion} = {}) {
+export function analyzeMotion(frames, {width, height, sourceFps} = {}) {
   const samples = Array.isArray(frames) ? frames : [];
-  const useWorld = /MediaPipe.*\/ world3d-v1$/.test(modelVersion || '') || samples.some(frame => Array.isArray(frame?.worldLandmarks));
   const reasons = new Set();
   const dimensionsValid = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;
   const hasTracking = samples.some(frame => frame?.subjectTracking != null);
@@ -114,8 +101,8 @@ export function analyzeMotion(frames, {width, height, sourceFps, modelVersion} =
     if (hasTracking && targetUsable) targetFrames++;
 
     const canMeasure = dimensionsValid && time !== null && targetUsable;
-    const left = canMeasure ? measureSide(frame, 0, width, height, useWorld) : emptyMeasurements();
-    const right = canMeasure ? measureSide(frame, 1, width, height, useWorld) : emptyMeasurements();
+    const left = canMeasure ? measureSide(frame, 0, width, height) : emptyMeasurements();
+    const right = canMeasure ? measureSide(frame, 1, width, height) : emptyMeasurements();
     const values = [...Object.values(left), ...Object.values(right)];
     if (values.some(Number.isFinite)) validFrames++;
     if (canMeasure && values.some(value => value === null)) reasons.add('MISSING_OR_UNCERTAIN_LANDMARKS');
@@ -123,8 +110,8 @@ export function analyzeMotion(frames, {width, height, sourceFps, modelVersion} =
   });
 
   return {
-    version: useWorld ? MOTION_3D_OBSERVATION_VERSION : MOTION_OBSERVATION_VERSION,
-    ...(useWorld ? {coordinateSpace: 'mediapipe-world-3d'} : {}),
+    version: MOTION_OBSERVATION_VERSION,
+    coordinateSpace: 'mediapipe-world-3d',
     quality: {
       totalFrames: samples.length,
       validFrames,

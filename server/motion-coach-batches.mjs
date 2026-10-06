@@ -6,8 +6,8 @@ export const MOTION_COACH_BATCH_LIMITS = Object.freeze({ maxChars: 64000, minCha
 const plainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 
-const POSE_COLUMNS = Object.freeze({ landmarks: ['x', 'y', 'visibility', 'missingMask'], wholebodyLandmarks: ['x', 'y', 'score'] });
-export const MOTION_COACH_POSE_ENCODING = 'rtmw-tables-f32-v2';
+const POSE_COLUMNS = Object.freeze({ landmarks: ['x', 'y', 'visibility', 'missingMask'], worldLandmarks: ['x', 'y', 'z', 'visibility', 'missingMask'] });
+export const MOTION_COACH_POSE_ENCODING = 'mediapipe-tables-f32-v1';
 
 /** Decimal numbers remain directly readable by the model. For columns whose
  * original values are all exactly binary32, the declared float32 type restores
@@ -25,7 +25,7 @@ function encodePointTable(points, pointColumns) {
   if (!Array.isArray(points) || !points.length) return points;
   const present = points.filter(point => point !== null);
   const tupleLength = present[0]?.length;
-  if (!present.length || ![3, pointColumns.length].includes(tupleLength)
+  if (!present.length || ![pointColumns.length - 1, pointColumns.length].includes(tupleLength)
       || !present.every(point => Array.isArray(point) && point.length === tupleLength)) return points;
 
   const columns = [], constants = {}, float32 = [];
@@ -69,8 +69,8 @@ function encodePoseBlock(block) {
 /** Decode a self-contained block; no preceding packet or external dictionary is
  * needed. This is also the executable specification of the readable wire format.
  * Each table row has the original landmark index, including explicit null rows.
- * Constants apply to every non-null point. RTMW scores remain separate from
- * the clamped confidence values used by the mapped measurement landmarks. */
+ * Constants apply to every non-null point. Metric XYZ values retain their
+ * signs and are encoded independently from image locations and visibility. */
 export function decodeMotionCoachBlock(block) {
   if (!block.encoding) return block;
   if (block.encoding !== MOTION_COACH_POSE_ENCODING) throw new Error('不支持的骨架数据编码。');

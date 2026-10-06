@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {toRtmwPipeline} from './helpers/motion-rtmw-pipeline.mjs';
+import {toMediaPipePipeline} from './helpers/motion-mediapipe-pipeline.mjs';
 import {analyzeMotion} from '../public/motion-analysis.js';
 import {buildMotionPoseData, buildFullMotionAnalysis} from '../public/motion-pose-data.js';
 import {mergeCoachAssessment} from '../public/motion-contract.js';
@@ -12,10 +12,10 @@ const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwM
 const provider = {name: 'Mock visual coach', protocol: 'openai', baseUrl: 'http://127.0.0.1:9/v1', model: 'vision', models: [{id: 'vision', vision: true}]};
 const crop = {xMin: 0, yMin: 0, xMax: 1, yMax: 1};
 function fixture(count = 150) {
-  const pipeline = toRtmwPipeline({duration: count / 15, width: 1280, height: 720, sampleFps: 15, sourceFps: 30,
+  const pipeline = toMediaPipePipeline({duration: count / 15, width: 1280, height: 720, sampleFps: 15, sourceFps: 30,
     frames: Array.from({length: count}, (_, index) => ({time: index / 15, personCount: 1,
       landmarks: Array.from({length: 33}, (_, joint) => ({x: .2 + joint / 100 + index / (count * 10), y: .2 + joint / 100, visibility: .97}))}))});
-  return validateMotionCoachRequest({reviewMode: 'efficient', duration: pipeline.duration, poseData: buildMotionPoseData(pipeline, {bodyOnly: true}),
+  return validateMotionCoachRequest({reviewMode: 'efficient', duration: pipeline.duration, poseData: buildMotionPoseData(pipeline),
     fullAnalysis: buildFullMotionAnalysis(analyzeMotion(pipeline.frames, pipeline), pipeline),
     analysis: {evidenceFrames: [.2, .8].map(time => ({time, crop, subjectTracking: {status: 'locked', trackId: 'one', confidence: .99, bbox: {xMin: .2, yMin: .1, xMax: .8, yMax: .9}}}))},
     keyframes: [.8, .2].map(time => ({time, mimeType: 'image/png', data: png}))});

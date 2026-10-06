@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {toRtmwPipeline} from './helpers/motion-rtmw-pipeline.mjs';
+import {toMediaPipePipeline} from './helpers/motion-mediapipe-pipeline.mjs';
 import {analyzeMotion} from '../public/motion-analysis.js';
 import {buildMotionPoseData, buildFullMotionAnalysis} from '../public/motion-pose-data.js';
 import {mergeCoachAssessment} from '../public/motion-contract.js';
@@ -11,12 +11,12 @@ const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwM
 const provider = {name: 'Guided fixture', protocol: 'openai', baseUrl: 'http://127.0.0.1:9/v1', model: 'vision', models: [{id: 'vision', vision: true}]};
 const respond = output => Response.json({choices: [{message: {content: JSON.stringify(output)}, finish_reason: 'stop'}]});
 function body(frameCount = 150) {
-  const pipeline = toRtmwPipeline({duration: frameCount / 15, width: 1280, height: 720, sampleFps: 15, sourceFps: 30,
+  const pipeline = toMediaPipePipeline({duration: frameCount / 15, width: 1280, height: 720, sampleFps: 15, sourceFps: 30,
     frames: Array.from({length: frameCount}, (_, index) => ({time: index / 15, personCount: 1,
       landmarks: Array.from({length: 33}, (_, joint) => ({x: .2 + joint / 100 + Math.sin(index / 11 + joint) * .03,
         y: .2 + joint / 90 + Math.cos(index / 13 + joint) * .03, visibility: .98}))}))});
   return {reviewMode: 'guided', selectedExerciseId: 'barbell-deadlift', duration: pipeline.duration,
-    poseData: buildMotionPoseData(pipeline, {bodyOnly: true}), fullAnalysis: buildFullMotionAnalysis(analyzeMotion(pipeline.frames, pipeline), pipeline),
+    poseData: buildMotionPoseData(pipeline), fullAnalysis: buildFullMotionAnalysis(analyzeMotion(pipeline.frames, pipeline), pipeline),
     keyframes: [.8, .2].map(time => ({time, mimeType: 'image/png', data: png}))};
 }
 const finding = extra => ({title: '负重位置', status: 'good', source: 'visual', imageIndices: [0,1], evidence: '两张画面中杠铃靠近腿部。', correction: '继续保持负重贴近身体。', priority: 1, ...extra});
@@ -111,9 +111,9 @@ test('unconfirmed selections discard all technical advice including invalid mode
 });
 
 test('short videos retain every source frame and a single actual image can verify user selection', async () => {
-  const source = body(20); source.keyframes = source.keyframes.slice(0,1);
+  const source = body(12); source.keyframes = source.keyframes.slice(0,1);
   const input = validateMotionCoachRequest(source), {context} = buildGuidedMotionContext(input);
-  assert.deepEqual(context.evidence.sourceFrameIndices,Array.from({length:20},(_,index)=>index));
+  assert.deepEqual(context.evidence.sourceFrameIndices,Array.from({length:12},(_,index)=>index));
   const coach = await completeMotionCoach({provider,input,fetchImpl:async()=>respond(output({feedback:[finding({imageIndices:[0]})]}))});
   assert.equal(coach.selectionCheck.status,'consistent');
   assert.deepEqual(coach.selectionCheck.evidenceTimes,[.8]);

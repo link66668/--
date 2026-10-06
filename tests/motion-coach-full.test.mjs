@@ -1,4 +1,4 @@
-import {toRtmwPipeline} from './helpers/motion-rtmw-pipeline.mjs';
+import {toMediaPipePipeline} from './helpers/motion-mediapipe-pipeline.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp, rm} from 'node:fs/promises';
@@ -21,7 +21,7 @@ const parseCall = options => {
 
 function requestFixture({frameCount = 75} = {}) {
   const duration = Math.max(8, frameCount / 15);
-  const pipeline = toRtmwPipeline({duration, width: 1920, height: 1080, sampleFps: 15, sourceFps: 30, frames: Array.from({length: frameCount}, (_, frameIndex) => ({
+  const pipeline = toMediaPipePipeline({duration, width: 1920, height: 1080, sampleFps: 15, sourceFps: 30, frames: Array.from({length: frameCount}, (_, frameIndex) => ({
     time: frameIndex / 15, sourceTime: frameIndex / 15, personCount: 1,
     landmarks: Array.from({length: 33}, (_, pointIndex) => ({x: 0.123456789013579 + frameIndex / (frameCount * 1.8) + pointIndex / 331, y: 0.234567891027913 + pointIndex / 167, visibility: 0.9876543210123})),
   }))});
@@ -29,7 +29,7 @@ function requestFixture({frameCount = 75} = {}) {
   const body = {duration, poseData: buildMotionPoseData(pipeline), fullAnalysis, analysis: compactMotionAnalysis(fullAnalysis), keyframes: [{time: 0.25, mimeType: 'image/png', data: png}, {time: 0.75, mimeType: 'image/png', data: png}]};
   const input = validateMotionCoachRequest(body);
   const packets = planMotionCoachBatches(input, {compactPose: true});
-  if (frameCount === 75) assert(packets.length >= 3 && packets.length <= 30, `Fixture should exercise several manageable packets, got ${packets.length}`);
+  if (frameCount === 75) assert(packets.length >= 2 && packets.length <= 30, `Fixture should exercise several manageable packets, got ${packets.length}`);
   return {body, input, packets};
 }
 
@@ -65,7 +65,7 @@ function reconstruct(calls) {
 function assertNoRawData(value) {
   if (!value || typeof value !== 'object') return;
   for (const [key, child] of Object.entries(value)) {
-    assert(!['poseData', 'fullAnalysis', 'landmarks', 'wholebodyLandmarks', 'blocks', 'keyframes', 'coordinates', 'dataUrl'].includes(key), `Response/history leaked raw ${key}`);
+    assert(!['poseData', 'fullAnalysis', 'landmarks', 'worldLandmarks', 'blocks', 'keyframes', 'coordinates', 'dataUrl'].includes(key), `Response/history leaked raw ${key}`);
     assertNoRawData(child);
   }
   assert(!JSON.stringify(value).includes(png), 'Raw picture data must remain transient');
@@ -110,7 +110,7 @@ test('full coach reviews every raw point and objective measurement without sendi
   assert.deepEqual(reconstruct(calls), {poseData: input.poseData, fullAnalysis: input.fullAnalysis}, 'Complete original values survive every packet without rounding or omitted tail frames');
   const rebuilt = reconstruct(calls);
   assert.deepEqual(rebuilt.poseData.frames[0].landmarks[0], input.poseData.frames[0].landmarks[0]);
-  assert.deepEqual(rebuilt.poseData.frames.at(-1).wholebodyLandmarks.at(-1), input.poseData.frames.at(-1).wholebodyLandmarks.at(-1));
+  assert.deepEqual(rebuilt.poseData.frames.at(-1).worldLandmarks.at(-1), input.poseData.frames.at(-1).worldLandmarks.at(-1));
   assert.deepEqual(rebuilt.fullAnalysis.measurements[74], input.fullAnalysis.measurements[74]);
   assert.deepEqual(Object.keys(input.analysis).sort(), ['evidenceFrames', 'quality']);
   assert.equal(result.coverage.complete, true);

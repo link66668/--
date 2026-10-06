@@ -12,7 +12,7 @@ export function validateTargetPoint(point) {
   return { x: point.x, y: point.y };
 }
 
-function candidateFeatures(landmarks, index, detectionBox) {
+function candidateFeatures(landmarks, index) {
   if (!Array.isArray(landmarks)) return null;
   const shoulders = [landmarks[11],landmarks[12]].filter(visible), hips = [landmarks[23],landmarks[24]].filter(visible);
   const body = landmarks.slice(11,33).filter(visible);
@@ -23,19 +23,13 @@ function candidateFeatures(landmarks, index, detectionBox) {
   const lengths = limbPairs.map(([a,b])=>visible(landmarks[a])&&visible(landmarks[b])?distance(landmarks[a],landmarks[b])/scale:null);
   const silhouette=landmarks.filter(visible);
   const bbox = { xMin:clamp(Math.min(...silhouette.map(p=>p.x))), yMin:clamp(Math.min(...silhouette.map(p=>p.y))), xMax:clamp(Math.max(...silhouette.map(p=>p.x))), yMax:clamp(Math.max(...silhouette.map(p=>p.y))) };
-  // A top-down crop can hallucinate shoulders above a lower-body detection.
-  // Such a partial crop must not compete equally with an observed full torso.
-  // This uses detector geometry, not the pose's uncalibrated/clamped scores.
-  const supportedPoint=index=>!detectionBox||(Array.isArray(detectionBox)&&detectionBox.length===4&&detectionBox.every(finite)&&(()=>{
-    const p=landmarks[index],marginX=(detectionBox[2]-detectionBox[0])*.02,marginY=(detectionBox[3]-detectionBox[1])*.02;
-    return visible(p)&&p.x>=detectionBox[0]-marginX&&p.x<=detectionBox[2]+marginX&&p.y>=detectionBox[1]-marginY&&p.y<=detectionBox[3]+marginY;
-  })());
-  const supportedTorso=[11,12,23,24].every(supportedPoint),supportedLegJoints=[25,26,27,28].filter(supportedPoint).length;
-  // Count only points supported by the actual detector crop. Extrapolated
-  // fingers/feet must not make a small or partial background crop look large.
-  const observedBody=[0,...majorJoints].filter(index=>visible(landmarks[index])&&supportedPoint(index)).map(index=>landmarks[index]);
+  // Every tier supplies the same MediaPipe visibility values. Only observed
+  // joints inside the image contribute to body completeness and prominence.
+  const supportedTorso=[11,12,23,24].every(index=>visible(landmarks[index]));
+  const supportedLegJoints=[25,26,27,28].filter(index=>visible(landmarks[index])).length;
+  const observedBody=[0,...majorJoints].map(index=>landmarks[index]).filter(visible);
   const observedArea=observedBody.length?Math.max(.0001,(Math.max(...observedBody.map(p=>p.x))-Math.min(...observedBody.map(p=>p.x)))*(Math.max(...observedBody.map(p=>p.y))-Math.min(...observedBody.map(p=>p.y)))):.0001;
-  const completeness=majorJoints.filter(index=>visible(landmarks[index])&&supportedPoint(index)).length/majorJoints.length;
+  const completeness=majorJoints.filter(index=>visible(landmarks[index])).length/majorJoints.length;
   return { index, anchor, scale, lengths, bbox, points:landmarks, supportedTorso, supportedLegJoints, observedArea, completeness, orientation:Math.atan2(shoulder.y-hip.y,shoulder.x-hip.x) };
 }
 const orientationDistance=(a,b)=>Math.abs(Math.atan2(Math.sin(a.orientation-b.orientation),Math.cos(a.orientation-b.orientation)));
@@ -45,30 +39,14 @@ function geometryDistance(a,b) {
   return differences.length ? differences.reduce((sum,value)=>sum+value,0)/differences.length : .2;
 }
 
-// A detector can return two overlapping boxes for ONE person. RTMW then
-// predicts the same torso and articulated limbs twice; these are not evidence
-// of an identity crossing. Require near-coincidence across almost the entire
-// body, not only a close anchor or overlapping boxes. Two nearby people with
-// different limb positions (or insufficient visible joints) remain separate.
+// Near-identical observations of one articulated body are not evidence of a
+// crossing. Require near-coincidence across at least ten visible major joints;
+// nearby people with different limbs or insufficient visibility stay separate.
 function samePoseObservation(a,b) {
   if(Math.abs(Math.log(a.scale/b.scale))>.08||orientationDistance(a,b)>.08)return false;
   if(![11,12,23,24].every(index=>visible(a.points[index])&&visible(b.points[index])))return false;
   const deltas=majorJoints.filter(index=>visible(a.points[index])&&visible(b.points[index])).map(index=>distance(a.points[index],b.points[index])/Math.min(a.scale,b.scale));
-  if(deltas.length>=10&&Math.max(...deltas)<.08&&deltas.reduce((sum,value)=>sum+value,0)/deltas.length<.025)return true;
-  // An upper-body-only detector box sometimes reproduces all eight upper-body
-  // points but collapses BOTH shins into its crop boundary. Only suppress this
-  // redundant partial view when the full articulated upper body coincides.
-  const collapsedLowerBody=pose=>pose.lengths.slice(4).filter(length=>finite(length)&&length<.12).length>=2;
-  const upper=[11,12,13,14,15,16,23,24];
-  if((collapsedLowerBody(a)||collapsedLowerBody(b))&&upper.every(index=>visible(a.points[index])&&visible(b.points[index])&&distance(a.points[index],b.points[index])<Math.min(a.scale,b.scale)*.04))return true;
-  // The crop's padded border can also pin all four knee/ankle predictions
-  // OUTSIDE its detector box. Do not let those fabricated lower-body positions
-  // hide an otherwise coincident head and both articulated arms.
-  if(a.supportedLegJoints&&b.supportedLegJoints)return false;
-  const headAndArms=[0,11,12,13,14,15,16];
-  if(!headAndArms.every(index=>visible(a.points[index])&&visible(b.points[index])))return false;
-  const upperDeltas=headAndArms.map(index=>distance(a.points[index],b.points[index])/Math.min(a.scale,b.scale));
-  return Math.max(...upperDeltas)<.06&&upperDeltas.reduce((sum,value)=>sum+value,0)/upperDeltas.length<.025;
+  return deltas.length>=10&&Math.max(...deltas)<.08&&deltas.reduce((sum,value)=>sum+value,0)/deltas.length<.025;
 }
 const supportedLimbs=candidate=>candidate.supportedLegJoints+candidate.lengths.filter(length=>finite(length)&&length>=.12&&length<=2.5).length;
 const supportedBody=candidate=>candidate.supportedTorso&&candidate.supportedLegJoints>=3;
@@ -80,11 +58,11 @@ export function createSubjectTracker({ targetPoint=null }={}) {
   let previous, previousTime, velocity={x:0,y:0}, halted;
   const missing = (status,reason) => ({index:null,subjectTracking:{status,trackId,confidence:0,reason}});
   return {
-    update(poses,time,{detectionBoxes}={}) {
+    update(poses,time) {
       if(!finite(time)||time<0)throw new Error('人物跟踪时间无效。');
       if(halted)return missing(halted.status,halted.reason);
       const candidates=[];
-      for(const candidate of (Array.isArray(poses)?poses:[]).map((points,index)=>candidateFeatures(points,index,detectionBoxes?.[index])).filter(Boolean)) {
+      for(const candidate of (Array.isArray(poses)?poses:[]).map(candidateFeatures).filter(Boolean)) {
         const duplicate=candidates.findIndex(previous=>samePoseObservation(previous,candidate));
         if(duplicate<0)candidates.push(candidate);
         else if(supportedLimbs(candidate)>supportedLimbs(candidates[duplicate]))candidates[duplicate]=candidate;
@@ -134,10 +112,9 @@ export function createSubjectTracker({ targetPoint=null }={}) {
       const competitors=ranked.filter(match=>!supportedBody(best.candidate)||supportedBody(match.candidate)),rival=competitors[1];
       const closeOther=competitors.find(match=>match!==best&&match.cost-best.cost<.35&&match.orientation<.65&&match.geometry<.35&&Math.abs(Math.log(match.candidate.scale/best.candidate.scale))<.45&&distance(match.candidate.anchor,best.candidate.anchor)<Math.min(match.candidate.scale,best.candidate.scale)*.65);
       if((rival&&rival.cost-best.cost<.22)||closeOther){
-        // Multiple cropped fragments with extrapolated torsos cannot establish
-        // a second identity. Skip this observation and require the original
-        // spatial/body match to recover within the existing three-second gap.
-        // A crossing between independently supported torsos still halts below.
+        // Incomplete or occluded bodies cannot establish a second identity.
+        // Skip the observation and require the original spatial/body match to
+        // recover within the existing gap. Two visible bodies halt below.
         if(competitors.filter(match=>supportedBody(match.candidate)).length<2)return missing('lost','partial-detections-unresolved');
         // After an unresolved crossing these landmarks cannot prove identity.
         // Requiring a new run is safer than resuming on the other person's path.

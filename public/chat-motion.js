@@ -138,9 +138,9 @@ export class ChatMotionVideos {
       // Chat needs no playback buffers or raw face/finger points. All original
       // body coordinates, target tracking and source timestamps stay intact.
       const {previewFrames, previewFps, ...pipeline} = output;
-      pipeline.frames = output.frames.map(({wholebodyLandmarks, ...frame}) => frame);
+      pipeline.frames = output.frames;
       const observations = analyzeMotion(pipeline.frames, pipeline);
-      const poseData = buildMotionPoseData(pipeline, {bodyOnly:true});
+      const poseData = buildMotionPoseData(pipeline);
       const fullAnalysis = buildFullMotionAnalysis(observations, pipeline);
       current();
       cache.local = {pipeline, observations, poseData, fullAnalysis};
