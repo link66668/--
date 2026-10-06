@@ -10,7 +10,7 @@ import { MOTION_VIDEO_ACCEPT, prepareMotionVideo, releasePreparedMotionVideo, va
 import { createMotionFramePlayer } from './motion-frame-player.js';
 import { drawMotionOverlay } from './motion-overlay.js';
 import { buildSmoothedMotionFrames } from './motion-smoothing.js';
-import { animateViewEntry } from './view-transitions.js?v=1';
+import { animateViewEntry } from './view-transitions.js?v=5';
 import { buildMotionAssessmentReport } from './motion-report.js';
 export { buildMotionAssessmentReport, validateMotionAssessmentSize, MAX_MOTION_ASSESSMENT_BYTES } from './motion-report.js';
 
@@ -89,7 +89,7 @@ export function mountMotionView(container,{saveAssessment,listAssessments,delete
   function coachDescription(){return coachReady?`${coachConfig.provider||''} · ${coachConfig.model||''}。AI 先结合骨架和关键画面识别动作。你确认或修改动作后，再评价动作并给出纠正建议。`:coachConfig.configured?'当前动作点评模型不支持图片或暂不可用。请配置支持图片的 AI 模型后开始评估。':'请先配置支持图片的 AI 模型，再开始动作评估。';}
   const listeners=new AbortController();
   container.innerHTML=`<section class="motion-page" aria-label="视频动作评估">
-    <header class="motion-heading"><div><span class="eyebrow">MOVEMENT CHECK</span><h1>看清动作，练得更稳。</h1><p>选择一段训练视频，了解动作是否标准，以及应该怎样调整。</p></div><span class="motion-local-badge"><span aria-hidden="true">●</span> 原视频留在本机</span></header>
+    <header class="motion-heading"><div><h1>看清动作，练得更稳。</h1><p>选择一段训练视频，了解动作是否标准，以及应该怎样调整。</p></div><span class="motion-local-badge"><span aria-hidden="true">●</span> 原视频留在本机</span></header>
     <div class="motion-workspace">
       <section class="motion-input card" aria-labelledby="motion-upload-title">
         <div class="motion-section-head"><div><span class="motion-step">01 / 选择视频</span><h2 id="motion-upload-title">从一组动作开始</h2></div><span class="badge neutral">先识别，再确认</span></div>

@@ -1,6 +1,7 @@
-// Match the existing energy-enter fade and gentle upward movement.
+// Views fade and rise; title copy stays in place while sharing the fade.
 const activeEntries = new Map();
 const pendingEntries = new WeakMap();
+const fixedTitleSelector = '.page-title > div:first-child, .greeting-copy, .motion-heading > div:first-child, h1:not(.markdown-body h1, .message h1, .cm-profile-copy h1, .cm-chat-peer h1)';
 const motionPreference = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');
 motionPreference?.addEventListener('change', () => {
   if (motionPreference.matches) cancelViewEntries();
@@ -24,9 +25,20 @@ export function animateViewEntry(element) {
     {opacity: 0, translate: '0 9px'},
     {opacity: 1, translate: '0 0'},
   ], {duration: 500, easing: 'ease'});
+  const startTime = animation.timeline?.currentTime;
+  if (startTime != null) animation.startTime = startTime;
+  const candidates = [...element.querySelectorAll(fixedTitleSelector)];
+  const titles = candidates.filter(title => !candidates.some(parent => parent !== title && parent.contains(title)));
+  const titleAnimations = titles.map(title => {
+    const entry = title.animate([{translate: '0 -9px'}, {translate: '0 0'}], {duration: 500, easing: 'ease'});
+    entry.id = 'view-title-position';
+    if (startTime != null) entry.startTime = startTime;
+    return entry;
+  });
   animation.id = 'view-entry';
   activeEntries.set(element, animation);
   const cleanup = () => {
+    for (const entry of titleAnimations) entry.cancel();
     if (activeEntries.get(element) === animation) activeEntries.delete(element);
   };
   animation.finished.then(cleanup, cleanup);
@@ -42,6 +54,7 @@ export function transitionView(element, update) {
     if (pendingEntries.get(element) === cleanup) pendingEntries.delete(element);
   };
   const begin = () => {
+    if (pendingEntries.get(element) !== cleanup) return;
     cleanup();
     animateViewEntry(element);
   };

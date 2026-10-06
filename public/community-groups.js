@@ -1,6 +1,6 @@
 import {communityId} from './community-api.js?v=10';
 import {CommunityImageComposer,communityImagesMarkup} from './community-images.js?v=2';
-import {animateViewEntry} from './view-transitions.js?v=1';
+import {animateViewEntry} from './view-transitions.js?v=5';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const name=user=>user?.nickname||user?.name||'社区用户';
