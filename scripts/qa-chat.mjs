@@ -70,8 +70,11 @@ const server = await startServer({ host: '127.0.0.1', port: 0, dataDir, fetchImp
   if (/QA计划(创建|修改|删除)/.test(text)) {
     if (last.role !== 'tool') return toolResponse('get_training_plan', {}, options.signal);
     const result = JSON.parse(last.content);
-    if (last.name === 'get_training_plan' || body.messages.findLast(m => m.tool_calls)?.tool_calls?.at(-1)?.function.name === 'get_training_plan') {
-      const expectedVersion = result.version ?? result.record?.version ?? 0;
+    if(result.name==='get_training_plan')return toolResponse('read_calendar',{},options.signal);
+    if(result.name==='read_calendar'&&text.includes('创建'))return toolResponse('create_training_plan',{plan:{name:'QA 缺少模板日'}},options.signal);
+    if (result.name==='read_calendar'||result.code==='INVALID_ARGUMENTS') {
+      const planResult=body.messages.filter(m=>m.role==='tool').map(m=>JSON.parse(m.content)).find(m=>m.name==='get_training_plan');
+      const expectedVersion = planResult.currentVersion;
       if (text.includes('创建')) return toolResponse('create_training_plan', { plan: samplePlan('QA 对话新建计划') }, options.signal);
       if (text.includes('修改')) return toolResponse('update_training_plan', { expectedVersion, plan: samplePlan('QA 对话修改计划') }, options.signal);
       return toolResponse('delete_training_plan', { expectedVersion }, options.signal);
@@ -119,7 +122,7 @@ try {
   await send('QA按需资料：按我的档案分析营养目标'); await idle();
   assert.deepEqual(Object.keys((await contextRequest).postDataJSON().context).sort(), ['date', 'localToday', 'timezoneOffset']);
   await page.getByText('已结合当前档案和营养目标给出建议。', { exact: true }).waitFor();
-  assert.match(await page.locator('.message.assistant').last().locator('.tool-results').textContent(), /已读取/);
+  assert.equal(await page.locator('.message.assistant').last().locator('.tool-results').textContent(), '');
   const followup = page.waitForRequest(request => request.url() === base + '/api/ai');
   await send('谢谢'); await idle();
   const followupBody = (await followup).postDataJSON();
@@ -178,6 +181,8 @@ try {
 
   step = 'chat creates and updates actual plan'; console.log(step);
   await send('QA计划创建：请创建训练计划'); await idle();
+  assert.equal(await page.locator('.message.assistant').last().locator('.tool-result.failed').count(),0);
+  assert.doesNotMatch(await page.locator('.message.assistant').last().textContent(),/操作未完成|计划必须包含|已读取/);
   await page.waitForFunction(() => document.querySelector('.messages')?.textContent.includes('操作已完成'));
   let saved = await activePlan(); assert.equal(saved?.data?.name, 'QA 对话新建计划');
   const firstVersion = saved.version;

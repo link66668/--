@@ -20,10 +20,13 @@ test('model capability data matches every standalone animation',()=>{
 test('large write schemas are introduced only after the corresponding read',()=>{
   const initial=initialChatTools(assistantTools);
   assert.equal(initial.some(t=>t.function.name.startsWith('create_')),false);
-  const plan=expandChatTools(assistantTools,initial,'get_training_plan');
+  const reads=new Set();
+  const beforeCalendar=expandChatTools(assistantTools,initial,'get_training_plan',reads);
+  assert(!beforeCalendar.some(t=>t.function.name==='create_training_plan'));
+  const plan=expandChatTools(assistantTools,beforeCalendar,'read_calendar',reads);
   assert(plan.some(t=>t.function.name==='create_training_plan'));
   assert(!plan.some(t=>t.function.name==='create_meal'));
-  assert(expandChatTools(assistantTools,plan,'get_today_meals').some(t=>t.function.name==='create_meal'));
+  assert(expandChatTools(assistantTools,plan,'get_today_meals',reads).some(t=>t.function.name==='create_meal'));
   assert(JSON.stringify(initial).length<JSON.stringify(assistantTools).length*.4);
 });
 test('large context is bounded without destroying original history or retries',t=>{

@@ -50,8 +50,18 @@ export function planCalendarTasks(plan, startDate) {
 export function recurringCalendarTasks(cycle, fromDate, toDate, busyDates = []) {
   if(cycle.endDate){validateDate(cycle.endDate);if(toDate>cycle.endDate)toDate=cycle.endDate;}
   if(fromDate>toDate)return [];
-  const tasks=projectRecurringTasks(cycle,fromDate,toDate,busyDates);
+  const tasks=projectRecurringTasks(cycle,fromDate,toDate,cycleBusySettings(cycle,busyDates));
+  for(const task of tasks)if(cycle.allowBusyDates?.includes(task.data.date))task.data.busyDateOverride=task.data.date;
   return tasks.filter(task=>!cycle.excludedDates?.includes(task.data.date));
+}
+
+// Exceptions belong to exact dates in this cycle, never to global busy settings.
+function cycleBusySettings(cycle, settings) {
+  if(!cycle.allowBusyDates?.length)return settings;
+  if(Array.isArray(settings))return settings.filter(date=>!cycle.allowBusyDates.includes(date));
+  const result=normalizeBusySettings(settings);
+  for(const date of cycle.allowBusyDates)result.overrides[validateDate(date)]=false;
+  return result;
 }
 
 function projectRecurringTasks(cycle, fromDate, toDate, busyDates = []) {
@@ -115,6 +125,7 @@ function recurringWithRules(cycle,from,to,settings) {
 }
 
 function cycleDateLookup(cycle,settings) {
+  settings=cycleBusySettings(cycle,settings);
   if(cycle.weekdays){
     const slots=weeklySlots(cycle,settings),dates=[];
     return offset=>{
@@ -148,6 +159,7 @@ export function normalizeBusyDates(dates = []) {
 
 /** Busy training slots pause the cycle; a planned rest slot still consumes a day. */
 export function cycleTaskDate(cycle, offset, busyDates = []) {
+  busyDates=cycleBusySettings(cycle,busyDates);
   if(cycle.weekdays)return cycleDateLookup(cycle,busyDates)(offset);
   if(!Array.isArray(busyDates))return cycleDateLookup(cycle,busyDates)(offset);
   return validateDate(new Date(cycleTaskOrdinal(cycle,offset,busyDates)*86400000).toISOString().slice(0,10));
@@ -180,6 +192,7 @@ export function rescheduleBusyTasks(records, cycle, previousDates, nextDates, to
   const prefix=cycle?`task:cycle:${cycle.id}:`:null;
   for(const record of records) {
     if(!isTrainingRecord(record))continue;
+    if(record.data.busyDateOverride===record.data.date){occupied.add(record.data.date);oldOccupied.add(record.data.date);continue;}
     if(record.data.date<today||finishedTraining(record)){occupied.add(record.data.date);oldOccupied.add(record.data.date);continue;}
     const suffix=prefix&&record.id.startsWith(prefix)?record.id.slice(prefix.length):'';
     const offset=/^\d+$/.test(suffix)?Number(suffix):null;

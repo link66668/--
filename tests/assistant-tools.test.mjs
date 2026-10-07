@@ -35,6 +35,22 @@ test('AI calendar operations honor busy dates and settings invalidate the calend
   assert.deepEqual(calendarState(db,'bob').busySettings,{weeklyRules:[],overrides:{}});
 });
 
+test('calendar busy-day authorization is explicit, boolean and scoped to one task date',t=>{
+  const {db,put,call}=fixture(t);
+  put('calendar-busy-days','calendar-settings',{dates:[today,'2026-09-30']});
+  assert(call('create_training_plan',{plan:plan(),schedule:{days:5}}).ok);
+  const version=()=>call('read_calendar').calendarVersion;
+  assert.equal(call('create_calendar_task',{task:{...training(today),allowBusyDate:'true'},calendarVersion:version()}).ok,false);
+  const saved=call('create_calendar_task',{task:{...training(today),allowBusyDate:true},calendarVersion:version()});
+  assert(saved.ok);assert.equal(saved.record.data.busyDateOverride,today);
+  const args={id:saved.record.id,expectedVersion:saved.record.version,calendarVersion:version(),task:training('2026-09-30')};
+  assert.equal(call('update_calendar_task',args).code,'BUSY_DATE');
+  assert.equal(recordById(db,'alice',saved.record.id).data.date,today);
+  const moved=call('update_calendar_task',{...args,task:training('2026-10-02')});
+  assert(moved.ok);assert.equal(moved.record.data.busyDateOverride,undefined);
+  assert.deepEqual(call('read_calendar').busyDates,[today,'2026-09-30']);
+});
+
 test('plan distributes training by date, ignores old daily/rest markers and creates no times', t => {
   const { db, put, call } = fixture(t);
   const work = put('task:class', 'calendar-task', daily());
@@ -188,7 +204,7 @@ test('published assistant task and plan schemas expose dates without daily tasks
   assert.equal('startTime' in properties.properties, false);
   assert.equal('endTime' in properties.properties, false);
   const schedule = assistantTools.find(tool => tool.function.name === 'create_training_plan').function.parameters.properties.schedule;
-  assert.deepEqual(Object.keys(schedule.properties), ['startDate', 'days', 'repeat', 'weekdays']);
+  assert.deepEqual(Object.keys(schedule.properties), ['allowBusyDates', 'startDate', 'days', 'repeat', 'weekdays']);
 });
 
 test('today meal CRUD calculates actual portions, detects conflicts and retains photos and correction history', t => {

@@ -10,6 +10,9 @@ import { createServer } from '../server.mjs';
 import { chatContextTool } from '../server/chat-context.mjs';
 import {historyTools} from '../server/chat-history.mjs';
 import {chatVisualTool,setChatVisuals} from '../server/chat-visuals.mjs';
+import {assistantTools,executeAssistantTool} from '../server/assistant-tools.mjs';
+import {openStore} from '../server/storage.mjs';
+import {conversationToolResults} from '../public/chat-tool-results.js';
 
 const provider = { name: 'Fixture', model: 'stream-model', baseUrl: 'http://127.0.0.1:9999/v1', protocol: 'openai', apiKey: 'private-test-key' };
 const messages = [{ role: 'system', content: 'System' }, { role: 'user', content: '你好' }];
@@ -27,6 +30,59 @@ async function run(options = {}) {
   const result = await streamChat({ provider, messages, tools: [], onEvent: (name, data) => events.push({ name, data }), ...options });
   return { result, events };
 }
+
+test('invalid plan arguments are repaired internally across all protocols without a failed card or duplicate writes',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'fitness-chat-repair-'));
+  const {db}=openStore(directory);
+  t.after(async()=>{db.close();await rm(directory,{recursive:true,force:true});});
+  const plan={name:'三分化',days:[{id:'upper',name:'上肢',rest:false,exercises:[{exerciseId:'pushup',sets:3,reps:'8–12',restSeconds:90}]}]};
+  for(const protocol of ['openai','anthropic','gemini']){
+    db.prepare('INSERT INTO users VALUES(?,?,?,?,?)').run(protocol,protocol+'@test',protocol,'test','2026-10-08');
+    let request=0;
+    const call=(name,args)=>protocol==='anthropic'?Response.json({content:[{type:'tool_use',id:'repair-'+request,name,input:args}],stop_reason:'tool_use'}):protocol==='gemini'?Response.json({candidates:[{content:{parts:[{functionCall:{name,args}}]},finishReason:'STOP'}]}):sse(callFrame(name,args));
+    const {result,events}=await run({provider:{...provider,protocol},tools:assistantTools,
+      executeTool:(name,args)=>executeAssistantTool({db,userId:protocol,name,args,requestId:'repair-request',localToday:'2026-10-08'}),
+      fetchImpl:async(_url,options)=>{
+        const body=JSON.parse(options.body);request++;
+        if(request===1)return call('get_training_plan',{});
+        if(request===2)return call('read_calendar',{});
+        if(request===3)return call('create_training_plan',{plan:{name:plan.name}});
+        if(request===4){assert.match(JSON.stringify(body),/计划必须包含 1–14 个循环日/);return call('create_training_plan',{plan});}
+        assert.equal(request,5);
+        return protocol==='anthropic'?Response.json({content:[{type:'text',text:'已保存训练计划。'}],stop_reason:'end_turn'}):protocol==='gemini'?Response.json({candidates:[{content:{parts:[{text:'已保存训练计划。'}]},finishReason:'STOP'}]}):textReply('已保存训练计划。');
+      }});
+    assert.equal(result.toolResults.filter(result=>!result.readOnly).length,1);
+    assert.equal(result.toolResults.at(-1).record.version,1);
+    assert(result.toolResults.every(result=>result.ok));
+    assert.doesNotMatch(JSON.stringify({result,events}),/计划必须包含|INVALID_ARGUMENTS/);
+  }
+});
+
+test('unresolved validation errors remain visible in plain language, including interrupted repairs',async()=>{
+  for(const interrupted of [false,true]){
+    let request=0;const events=[];
+    const task=streamChat({provider,messages,tools,onEvent:(name,data)=>events.push({name,data}),executeTool:()=>({ok:false,code:'INVALID_ARGUMENTS',message:'内部字段参数错误'}),fetchImpl:async()=>{
+      if(++request===1)return sse(callFrame('get_training_plan',{}));
+      if(interrupted)throw new Error('connection lost');
+      return textReply('资料暂时无法读取，请重试。');
+    }});
+    if(interrupted)await assert.rejects(task);else await task;
+    const failure=events.filter(e=>e.name==='tool_result');
+    assert.equal(failure.length,1);assert.equal(failure[0].data.ok,false);
+    assert.match(failure[0].data.message,/资料暂时无法读取/);
+    assert.doesNotMatch(JSON.stringify(events),/内部字段参数错误/);
+  }
+});
+
+test('conversation cards hide routine reads and recovered historical errors but retain genuine failures',()=>{
+  const invalid={name:'update_training_plan',ok:false,code:'INVALID_ARGUMENTS',message:'计划必须包含 1–14 个循环日。'};
+  const saved={name:'update_training_plan',ok:true,message:'已保存'};
+  assert.deepEqual(conversationToolResults([{name:'read_calendar',readOnly:true,ok:true},invalid,saved]),[saved]);
+  const failures=conversationToolResults([invalid]);
+  assert.equal(failures.length,1);assert.match(failures[0].message,/尚未保存/);assert.doesNotMatch(failures[0].message,/循环日/);
+  const web={name:'web_search',ok:true,readOnly:true,sources:[]};
+  assert.deepEqual(conversationToolResults([web]),[web]);
+});
 
 test('model controls visual selection, replacement and clearing even during receipt replay',async()=>{
   for(const receipt of [undefined,[{name:'create_meal',ok:true,message:'已保存'}]]){
@@ -249,7 +305,9 @@ test('API streams account-scoped CRUD, replays committed receipts and rejects se
     const previous = body.messages.at(-1), user = body.messages.filter(item => item.role === 'user').at(-1).content;
     if (user === '敏感参数测试' && previous.role !== 'tool') return sse(callFrame('create_training_plan', { plan: { ...plan, name: provider.apiKey } }));
     if (previous.role !== 'tool') return sse(callFrame('get_training_plan', {}));
-    const receipt = JSON.parse(previous.content);
+    let receipt = JSON.parse(previous.content);
+    if (receipt.name === 'get_training_plan' && user !== '查看') return sse(callFrame('read_calendar', {}));
+    if (receipt.name === 'read_calendar') receipt=body.messages.filter(item=>item.role==='tool').map(item=>JSON.parse(item.content)).find(item=>item.name==='get_training_plan');
     if (receipt.name !== 'get_training_plan') return textReply(receipt.message);
     if (user === '查看') return textReply(receipt.exists ? receipt.record.data.name : '没有计划');
     const name = user === '创建' ? 'create_training_plan' : user === '修改' ? 'update_training_plan' : 'delete_training_plan';

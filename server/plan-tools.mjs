@@ -26,6 +26,7 @@ const planSchema = {
     variant: { type: 'string', maxLength: 40, description: '可选方案标签，例如 custom、home、standard。' },
     notes: { type: 'array', maxItems: 12, items: { type: 'string', minLength: 1, maxLength: 500 } },
     days: {
+      description: '完整的 1–14 个训练/休息模板日，不是日历日期列表。更新也必须包含全部模板日；仅调整排期时沿用 get_training_plan 返回的 record.data.days。实际排期长度放在 schedule.days。',
       type: 'array', minItems: 1, maxItems: 14,
       items: {
         type: 'object', additionalProperties: false, required: ['name', 'rest', 'exercises'],
@@ -41,6 +42,7 @@ const planSchema = {
 };
 const expectedVersionSchema = { type: 'integer', minimum: 1, description: '必须使用刚刚 get_training_plan 返回的 currentVersion；版本不符时重新读取并按用户要求调整。' };
 const scheduleSchema = { type: 'object', additionalProperties: false, properties: {
+  allowBusyDates: {type:'array',maxItems:366,uniqueItems:true,items:{type:'string'},description:'默认不传，所有繁忙日禁止训练。仅用户明确要求在某些繁忙日期训练时填写这些 YYYY-MM-DD 日期；只对列出的本次排期范围内日期生效。普通排期要求、旧计划备注不构成繁忙日例外授权。'},
   startDate: { type: 'string', description: '排期开始日期 YYYY-MM-DD，默认今天，不能早于今天。' },
   days: { type: 'integer', minimum: 1, maximum: 366, description: '首次生成的日期范围，默认 84 天；持续循环不以此为截止日。仅 repeat=false 时代表计划总天数。' },
   repeat:{type:'boolean',description:'默认 true，保存与手动计划相同的持续循环。仅用户明确要求只排某个有限日期范围时设 false。'},
@@ -188,7 +190,7 @@ export function executePlanTool({ db, userId, name, args = {}, requestId, localT
     object(args, '工具参数');
     if (readNames.has(name)) return {
       name, ok: true, message: '已读取当前训练计划。', ...state(db, userId),
-      recurrence:(()=>{const cycle=recordById(db,userId,'calendar-cycle'),current=state(db,userId);return current.exists&&cycle&&!cycle.deleted&&cycle.data.plan?.planVersion===current.record.data.planVersion?{startDate:cycle.data.startDate,weekdays:cycle.data.weekdays||null,repeat:!cycle.data.endDate,endDate:cycle.data.endDate||null}:null;})(),
+      recurrence:(()=>{const cycle=recordById(db,userId,'calendar-cycle'),current=state(db,userId);return current.exists&&cycle&&!cycle.deleted&&cycle.data.plan?.planVersion===current.record.data.planVersion?{startDate:cycle.data.startDate,weekdays:cycle.data.weekdays||null,repeat:!cycle.data.endDate,endDate:cycle.data.endDate||null,allowBusyDates:cycle.data.allowBusyDates||[]}:null;})(),
       availableExercises: exercises.map(({ id, name, equipment }) => ({ id, name, equipment })),
     };
     if (typeof requestId !== 'string' || !/^[A-Za-z0-9_.:-]{8,128}$/.test(requestId)) invalid('写入训练计划需要有效的请求 ID。');

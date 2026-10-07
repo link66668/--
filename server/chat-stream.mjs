@@ -1,6 +1,7 @@
 import { HttpError, validateProviderTarget, pinnedRequest, requestHeaders, connectionError, apiBase, nativeParts } from './providers.mjs';
 import {initialChatTools,expandChatTools,toolStatus} from './chat-tool-policy.mjs';
 import {compactChatMotionResult} from '../public/chat-motion-result.js';
+import {isRecoverableToolResult, toolOperationKey, userFacingToolResult} from '../public/chat-tool-results.js';
 
 const MAX_RESPONSE = 2 * 1024 * 1024;
 const MAX_TEXT = 32000;
@@ -262,6 +263,9 @@ export async function streamChat({ provider, messages, tools = [], executeTool, 
   let content = '', reasoning = '', enabledTools = initialChatTools(tools), toolCount = 0, contextCount = 0, operationRounds = 0;
   const replaying=receipt&&(!Array.isArray(receipt)||receipt.length>0);
   const toolResults = [], history = [...messages];
+  const pendingFailures = new Map();
+  const successfulReads = new Set();
+  history[0] = {...history[0], content: `${history[0].content}\n工具参数校验和版本冲突属于内部过程。收到可修正错误时，按工具返回的原因修正参数或重新读取后重试；不能要求用户补填内部字段，不能复述原始校验错误。不要重复提交已成功的操作。最终只说明实际结果；仍失败时简短说明未保存及可行下一步，不得声称成功。`};
   const emitText = textEmitter(provider.apiKey, async text => { content += text; if (content.length > MAX_TEXT) throw new HttpError(502, '模型回复超过 32000 字，请缩短问题或新建会话。'); await onEvent('delta', { text }); });
   await onEvent('meta', redactObject({ model: provider.model, provider: provider.name }, provider.apiKey));
   if (receipt && (!Array.isArray(receipt) || receipt.length)) {
@@ -274,7 +278,7 @@ export async function streamChat({ provider, messages, tools = [], executeTool, 
   }
   // Allow eight context reads in addition to the existing five operation
   // rounds, so loading personal data does not consume the CRUD round budget.
-  for (let round = 0; round < 14; round++) {
+  try { for (let round = 0; round < 14; round++) {
     signal.throwIfAborted();
     let completion;
     try { completion = await streamCompletion({ provider, messages: history, tools: enabledTools, fetchImpl, address, signal, onText: emitText }); }
@@ -298,7 +302,10 @@ export async function streamChat({ provider, messages, tools = [], executeTool, 
     }
     reasoning = completion.reasoning || reasoning;
     await emitText('', true);
-    if (!completion.toolCalls.length) return redactObject({ content:finalContentOnly?completion.content:content, model: provider.model, provider: provider.name, ...(reasoning ? { reasoningContent: reasoning } : {}), toolResults }, provider.apiKey);
+    if (!completion.toolCalls.length) {
+      await flushFailures();
+      return redactObject({ content:finalContentOnly?completion.content:content, model: provider.model, provider: provider.name, ...(reasoning ? { reasoningContent: reasoning } : {}), toolResults }, provider.apiKey);
+    }
     signal.throwIfAborted();
     const contextCalls = completion.toolCalls.filter(call => ['read_chat_context','read_conversation_history','read_chat_attachment','set_chat_visuals','web_search','read_web_page'].includes(call.name)).length;
     contextCount += contextCalls;
@@ -315,16 +322,27 @@ export async function streamChat({ provider, messages, tools = [], executeTool, 
       const {modelMessages,...publicResult}=result;
       if(modelMessages&&['read_chat_attachment'].includes(call.name))extraMessages.push(...redactObject(modelMessages,provider.apiKey));
       const output = redactObject({ ...publicResult, name: call.name }, provider.apiKey);
-      if(output.ok&&!replaying)enabledTools=expandChatTools(tools,enabledTools,call.name);
+      if(output.ok&&!replaying)enabledTools=expandChatTools(tools,enabledTools,call.name,successfulReads);
       // Full reference data belongs only to this model turn. Keep a small
       // status in the UI/history so the next turn does not carry it again.
       const visible = ['read_chat_context','get_training_plan','get_today_meals','read_calendar','read_conversation_history','read_chat_attachment'].includes(call.name)
         ? { name: call.name, readOnly: true, ok: output.ok, message: output.message, ...(output.code ? { code: output.code } : {}), ...(output.sections ? { sections: output.sections } : {}) }
         : ['web_search','read_web_page'].includes(call.name)?Object.fromEntries(Object.entries(output).filter(([key])=>!['text','untrusted'].includes(key)).map(([key,value])=>[key,key==='sources'?value.map(({title,url,publishedAt})=>({title,url,...(publishedAt?{publishedAt}:{})})):value])):output;
-      toolResults.push(visible); results.push({ call, result: output });
-      await onEvent('tool_result', visible);
+      const operationKey = toolOperationKey(call.name, call.args);
+      results.push({ call, result: output });
+      if (isRecoverableToolResult(output)) {
+        pendingFailures.set(operationKey, userFacingToolResult(visible));
+      } else {
+        if (output.ok) pendingFailures.delete(operationKey);
+        toolResults.push(visible);
+        await onEvent('tool_result', visible);
+      }
     }
     history.push(completion.assistant, ...resultMessages(completion, results),...extraMessages);
     if (completion.content) await emitText('\n\n', true);
+  } } finally { await flushFailures(); }
+  async function flushFailures() {
+    const failures = [...pendingFailures.values()]; pendingFailures.clear();
+    for (const result of failures) { toolResults.push(result); await onEvent('tool_result', result); }
   }
 }

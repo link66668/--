@@ -14,6 +14,7 @@ const expectedVersion = { type: 'integer', minimum: 1, description: '读取工�
 const idSchema = { type: 'string', description: '读取工具返回的记录 id，不能填写其他账号 ID。' };
 const calendarVersion = { type: 'string', description: '刚读取 read_calendar 返回的 calendarVersion；训练日历或计划改变时重新读取。' };
 const taskSchema = { type: 'object', additionalProperties: false, required: ['title', 'date'], properties: {
+  allowBusyDate: {type:'boolean',description:'默认 false。仅用户明确要求在 task.date 这个繁忙日期训练时设 true；不能从普通排期要求或旧备注推定授权。仅对此任务的该日期有效。'},
   taskType: { type: 'string', enum: ['training'], description: '只能是训练任务，省略时默认为 training。' }, title: { type: 'string', minLength: 1, maxLength: 80 },
   date: { type: 'string', description: 'YYYY-MM-DD，今天或未来日期；按日期安排，不指定时刻。' },
   notes: { type: 'string', maxLength: 2000 }, dayId: { type: 'string', description: '新增训练须指定固定计划中非休息训练日 ID。移动原训练且内容不变时可以保留原值。' }, completed: { type: 'boolean' },
@@ -94,8 +95,10 @@ function checkedTask(db, userId, value, existing, today) {
   assertObject(value);
   if (value.taskType !== undefined && value.taskType !== 'training') fail('INVALID_ARGUMENTS', '日历只支持训练任务。');
   const task = validateCalendarTask({ ...value, taskType: 'training' });
-  if(existing&&task.date!==existing.data.date){existing=structuredClone(existing);delete existing.data.busyBaseDate;}
-  if(isBusyDate(task.date,calendarState(db,userId).busySettings))fail('BUSY_DATE','这一天已设为繁忙，请选择其他日期。');
+  if(value.allowBusyDate!==undefined&&typeof value.allowBusyDate!=='boolean')fail('INVALID_ARGUMENTS','繁忙日例外必须为布尔值。');
+  if(existing){existing=structuredClone(existing);delete existing.data.busyDateOverride;if(task.date!==existing.data.date)delete existing.data.busyBaseDate;}
+  if(isBusyDate(task.date,calendarState(db,userId).busySettings)&&value.allowBusyDate!==true)fail('BUSY_DATE','这一天已设为繁忙，请根据已读取的空闲日期重新排期；仅用户明确要求此繁忙日期训练才可传 allowBusyDate=true。');
+  if(value.allowBusyDate===true)task.busyDateOverride=task.date;
   if (task.date < today) fail('HISTORICAL_TASK', '不能通过 AI 改写过去的训练记录。');
   const plan = recordById(db, userId, 'active-plan');
   const dayId = value.dayId || existing?.data?.dayId;
@@ -130,7 +133,10 @@ export function executeAssistantTool({ db, userId, name, args = {}, requestId, l
       const records = current.records.filter(record => record.data.date >= startDate && record.data.date <= endDate).map(record => ({ ...record, data: dateOnlyData(record.data) }));
       const dayTypes = [];
       for (let date = startDate; date <= endDate; date = addDays(date, 1)) { const dayType = trainingDayType(date, records); dayTypes.push({ date, dayType, rest: dayType === 'rest' }); }
-      return { name, ok: true, message: '已读取训练日历。', today, startDate, endDate, calendarVersion: current.calendarVersion, records, dayTypes, busyDates:busyDatesInRange(current.busySettings,startDate,endDate) };
+      const busyDates=busyDatesInRange(current.busySettings,startDate,endDate);
+      return { name, ok: true, message: '已读取训练日历。', today, startDate, endDate, calendarVersion: current.calendarVersion, records, dayTypes, busyDates, busySettings:current.busySettings,
+        availableDates:dayTypes.map(day=>day.date).filter(date=>!busyDates.includes(date)),
+        schedulingPolicy:'繁忙日默认禁止安排训练，无需再次询问繁忙日是否能练。明确要求制定或调整计划时，依据已有资料直接执行；未指定训练星期时选空闲日。已有计划备注中的星期不优先于繁忙规则。仅用户明确要求在具体繁忙日期训练时使用日期例外，不能取消全局繁忙设置。' };
     }
     if (typeof requestId !== 'string' || !/^[A-Za-z0-9_.:-]{8,128}$/.test(requestId)) fail('INVALID_ARGUMENTS', '写入需要有效的请求 ID。');
     const isMeal = name.endsWith('_meal'), creating = name.startsWith('create_'), deleting = name.startsWith('delete_');

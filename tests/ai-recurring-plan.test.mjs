@@ -7,6 +7,7 @@ import {openStore,getRecords} from '../server/storage.mjs';
 import {executeAssistantTool} from '../server/assistant-tools.mjs';
 import {recordById,writeRecord} from '../server/calendar-data.mjs';
 import {recurringCalendarTasks,rescheduleBusyTasks} from '../public/schedule.js';
+import {isBusyDate} from '../public/busy-rules.js';
 
 const today='2026-10-01'; // Thursday: must not treat the start as Monday.
 const plan={name:'三分化',days:['胸日','背日','腿日'].map((name,i)=>({id:'day-'+i,name,rest:false,exercises:[{exerciseId:['bench','row','squat'][i],sets:3,reps:'8–12',restSeconds:90}]}))};
@@ -55,4 +56,36 @@ test('finite schedules stop; busy weekdays preserve the selected weekdays and wo
   assert(changes.every(task=>[1,3,5].includes(new Date(task.data.date).getUTCDay())));
   assert(call('update_training_plan',{expectedVersion:1,plan,schedule:{weekdays:[]}}).ok);
   assert.equal(cycle().data.weekdays,undefined);
+});
+
+test('AI reads full busy rules and both initial and future weekly schedules exclude busy dates',t=>{
+  const {db,call,cycle}=fixture(t);
+  const settings={weeklyRules:[{from:today,weekdays:[1,4,7]}],overrides:{'2026-10-02':true}};
+  writeRecord(db,'a',{id:'calendar-busy-days',kind:'calendar-settings',data:settings});
+  const read=call('read_calendar');
+  assert.deepEqual(read.busySettings,settings);
+  assert(read.availableDates.every(date=>!isBusyDate(date,settings)));
+  const created=call('create_training_plan',{plan,schedule:{weekdays:[1,3,5],days:31}});
+  assert(created.ok);assert(created.scheduled.length>0);
+  assert(created.scheduled.every(task=>!isBusyDate(task.date,settings)));
+  const future=recurringCalendarTasks(cycle().data,'2026-11-01','2026-11-30',settings);
+  assert(future.length>0);assert(future.every(task=>!isBusyDate(task.data.date,settings)));
+  assert.deepEqual(call('read_calendar').busySettings,settings);
+});
+
+test('explicit plan exceptions apply only to listed dates and are not inherited by a new plan request',t=>{
+  const {db,call,cycle}=fixture(t);
+  const settings={weeklyRules:[],overrides:{'2026-10-02':true,'2026-10-05':true}};
+  writeRecord(db,'a',{id:'calendar-busy-days',kind:'calendar-settings',data:settings});
+  const created=call('create_training_plan',{plan,schedule:{weekdays:[1,3,5],days:14,allowBusyDates:['2026-10-02']}});
+  assert(created.ok);assert.equal(created.scheduled[0].date,'2026-10-02');
+  assert(!created.scheduled.some(task=>task.date==='2026-10-05'));
+  const tasks=recurringCalendarTasks(cycle().data,today,'2026-10-14',settings);
+  assert.equal(tasks[0].data.busyDateOverride,'2026-10-02');
+  assert.deepEqual(rescheduleBusyTasks(tasks,cycle().data,settings,settings,today),[]);
+  assert.deepEqual(call('get_training_plan').recurrence.allowBusyDates,['2026-10-02']);
+  assert(call('update_training_plan',{expectedVersion:1,plan,schedule:{days:14}}).ok);
+  assert(!recurringCalendarTasks(cycle().data,today,'2026-10-14',settings).some(task=>isBusyDate(task.data.date,settings)));
+  assert.deepEqual(call('read_calendar').busySettings,settings);
+  assert.equal(call('update_training_plan',{expectedVersion:2,plan,schedule:{days:7,allowBusyDates:['2026-11-01']}}).ok,false);
 });

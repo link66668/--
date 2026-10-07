@@ -62,7 +62,8 @@ export function validateSchedule(value, today) {
   if (!Number.isSafeInteger(days) || days < 1 || days > 366) throw new Error('排期范围必须为 1–366 天。');
   if(typeof repeat!=='boolean')throw new Error('循环开关必须为布尔值。');
   if(input.weekdays!==undefined&&(!Array.isArray(input.weekdays)||input.weekdays.length>7||input.weekdays.some(day=>!Number.isInteger(day)||day<1||day>7)||new Set(input.weekdays).size!==input.weekdays.length))throw new Error('每周训练日须为不重复的 1–7（周一至周日）。');
-  return { startDate, days,repeat,...(input.weekdays?{weekdays:[...input.weekdays].sort((a,b)=>a-b)}:{}) };
+  if(input.allowBusyDates!==undefined&&(!Array.isArray(input.allowBusyDates)||input.allowBusyDates.length>366||input.allowBusyDates.some(date=>!validDate(date)||date<startDate||date>addDays(startDate,days-1))))throw new Error('繁忙日例外须为本次排期范围内明确指定的日期。');
+  return { startDate, days,repeat,...(input.weekdays?{weekdays:[...input.weekdays].sort((a,b)=>a-b)}:{}),...(input.allowBusyDates?.length?{allowBusyDates:[...new Set(input.allowBusyDates)].sort()}:{}) };
 }
 
 // Called inside the same transaction as the plan write. Training is distributed
@@ -88,7 +89,7 @@ export function arrangePlan(db, userId, previousPlan, planRecord, schedule, toda
   const retained = current.records.filter(task => !removedIds.has(task.id));
   const plan = planRecord.data;
   const weekdays=schedule.weekdays??(previousCycle&&!previousCycle.deleted&&previousCycle.data.plan?.planVersion===previousPlan?.planVersion?previousCycle.data.weekdays:undefined);
-  const rule={id:plan.planVersion,startDate:schedule.startDate,plan,...(weekdays?.length?{weekdays}:{}),...(!schedule.repeat?{endDate}:{}),excludedDates:[...new Set(retained.map(task=>task.data.date).filter(date=>date>=schedule.startDate))]};
+  const rule={id:plan.planVersion,startDate:schedule.startDate,plan,...(weekdays?.length?{weekdays}:{}),...(schedule.allowBusyDates?{allowBusyDates:schedule.allowBusyDates}:{}),...(!schedule.repeat?{endDate}:{}),excludedDates:[...new Set(retained.map(task=>task.data.date).filter(date=>date>=schedule.startDate))]};
   writeRecord(db,userId,{id:'calendar-cycle',kind:'training-cycle',data:rule,version:previousCycle?.version||0},updatedAt);
   for (const occurrence of recurringCalendarTasks(rule,schedule.startDate,endDate,current.busySettings)) {
     const date=occurrence.data.date,day=occurrence.data.daySnapshot;
@@ -97,5 +98,5 @@ export function arrangePlan(db, userId, previousPlan, planRecord, schedule, toda
     const record = writeRecord(db, userId, { id: occurrence.id, kind: 'calendar-task', data }, updatedAt);
     records.push(record); retained.push(record);
   }
-  return { records, scheduled: records.filter(record => !record.deleted).map(record => ({ id: record.id, date: record.data.date, title: record.data.title })), unscheduled, startDate: schedule.startDate, endDate,recurrence:{repeat:schedule.repeat,startDate:rule.startDate,weekdays:weekdays||null,endDate:rule.endDate||null} };
+  return { records, scheduled: records.filter(record => !record.deleted).map(record => ({ id: record.id, date: record.data.date, title: record.data.title })), unscheduled, startDate: schedule.startDate, endDate,recurrence:{repeat:schedule.repeat,startDate:rule.startDate,weekdays:weekdays||null,endDate:rule.endDate||null,allowBusyDates:rule.allowBusyDates||[]} };
 }
