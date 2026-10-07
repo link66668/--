@@ -49,7 +49,6 @@ async function verifyPassword(password, stored) {
   return known.length === candidate.length && timingSafeEqual(candidate, known);
 }
 
-function publicUser(user) { return { id: user.id, email: user.email, name: user.name }; }
 function tokenHash(token) { return createHash('sha256').update(token).digest('hex'); }
 function currentTime() { return new Date().toISOString(); }
 function send(res, status, data) {
@@ -157,7 +156,12 @@ export function createServer(options = {}) {
     if (!entry || entry.reset < now) entry = { count: 0, reset: now + 15 * 60000 };
     entry.count++;
     attempts.set(key, entry);
-    if (entry.count > 40) throw new HttpError(429, '登录或注册尝试过于频繁，请 15 分钟后再试。');
+    if (entry.count > 40) throw new HttpError(429, '账号操作过于频繁，请 15 分钟后再试。');
+  }
+  function publicUser(user) {
+    const avatar = db.prepare('SELECT avatar_media_id FROM community_profiles WHERE user_id = ?').get(user.id)?.avatar_media_id;
+    return { id: user.id, email: user.email, name: user.name,
+      avatarUrl: avatar ? `/api/community/media/${encodeURIComponent(avatar)}` : null };
   }
   function requireUser(req) {
     const token = sessionToken(req);
@@ -232,7 +236,7 @@ export function createServer(options = {}) {
         if (db.prepare('SELECT id FROM users WHERE email = ?').get(email)) throw new HttpError(409, '此邮箱已注册。');
         db.prepare('INSERT INTO users(id,email,name,password,created_at) VALUES(?,?,?,?,?)').run(user.id, user.email, user.name, hash, currentTime());
         createSession(req, res, user);
-        send(res, 201, { user }); return;
+        send(res, 201, { user: publicUser(user) }); return;
       }
       if (pathname === '/api/auth/login' && method === 'POST') {
         rateLimit(req);
@@ -241,7 +245,9 @@ export function createServer(options = {}) {
         const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
         // Run scrypt even for unknown accounts to reduce account-enumeration timing differences.
         const valid = await verifyPassword(body.password, user?.password ?? `${'0'.repeat(32)}:${'0'.repeat(128)}`);
-        if (!user || !valid) throw new HttpError(401, '邮箱或密码不正确。');
+        // A password change or account deletion while scrypt runs must not issue a stale session.
+        const current = user && db.prepare('SELECT password FROM users WHERE id = ?').get(user.id);
+        if (!user || !valid || current?.password !== user.password) throw new HttpError(401, '邮箱或密码不正确。');
         createSession(req, res, user);
         send(res, 200, { user: publicUser(user) }); return;
       }
@@ -256,6 +262,23 @@ export function createServer(options = {}) {
         const user = requireUser(req);
         if (pathname === '/api/auth/me' && method === 'GET') { send(res, 200, { user: publicUser(user) }); return; }
         checkExpectedUser(req, user);
+        if (pathname === '/api/account/password' && method === 'PATCH') {
+          rateLimit(req);
+          const body = await readBody(req, 10000);
+          if (typeof body.newPassword !== 'string' || body.newPassword.length < 8 || body.newPassword.length > 256) throw new HttpError(400, '密码长度应为 8–256 个字符。');
+          if (!await verifyPassword(body.currentPassword, user.password)) throw new HttpError(401, '当前密码不正确。');
+          if (body.currentPassword === body.newPassword) throw new HttpError(400, '新密码不能与当前密码相同。');
+          const hash = await passwordHash(body.newPassword);
+          communityTransaction(db, () => {
+            // Body reading and password hashing yield; never overwrite newer credentials or revive a revoked session.
+            const current = requireUser(req);
+            checkExpectedUser(req, current);
+            if (current.id !== user.id || current.password !== user.password) throw new HttpError(409, '账号登录状态已变更，请重新登录后继续。');
+            db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, user.id);
+            db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(user.id, tokenHash(sessionToken(req)));
+          });
+          send(res, 200, { ok: true }); return;
+        }
         if (await community.handle(req, res, user, pathname)) return;
         if(pathname==='/api/compute'&&method==='POST') {
           const body=await readBody(req,8*1024*1024);

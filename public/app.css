@@ -554,6 +554,8 @@
 .personal-center-content>.settings-nav button{min-height:44px;padding:10px 16px;border-radius:999px;font-size:13px;white-space:nowrap}
 .personal-center-content>.settings-nav button.active{background:#eaf4fc;color:#347da6;box-shadow:none}
 .personal-center-content #personal-community{min-width:0}
+.personal-section-heading{font-size:16px;margin:18px 0;scroll-margin-top:24px}
+.personal-review{margin-top:32px;padding-top:8px;border-top:1px solid #eeeef3;scroll-margin-top:24px}
 @media(max-width:760px){.layout.personal-center-active .content.personal-center-content{padding:22px 16px 64px}.personal-center-content>.page-title{flex-wrap:wrap;gap:12px;margin-bottom:18px}.personal-center-content>.page-title h1{font-size:23px}.personal-center-content .personal-preview{font-size:11px;padding:9px 13px}.personal-center-content>.settings-nav{gap:5px;padding-bottom:12px}.personal-center-content>.settings-nav button{font-size:12px;padding:9px 12px}}
 
 /* Collected achievements share the current blue/lilac product theme. */
@@ -660,3 +662,39 @@
 .web-search-result>strong,.web-search-result>span,.web-search-result>small{display:block;margin:4px 0}
 .web-search-result ul{padding-left:20px;margin:8px 0;line-height:1.8}
 .web-search-result a{color:#274c77;text-decoration:underline}
+.account-settings-link{color:inherit;text-decoration:none;border-radius:8px}
+.avatar.account-settings-link{border-radius:50%}
+.account-settings-link:focus-visible{outline:2px solid var(--green);outline-offset:4px}
+[data-account-avatar]{overflow:hidden;flex-shrink:0}
+[data-account-avatar]>img{width:100%;height:100%;display:block;object-fit:cover;border-radius:inherit}
+.account-settings-grid{display:grid;grid-template-columns:minmax(240px,.85fr) minmax(300px,1.15fr);gap:24px;align-items:start}
+.account-settings-card{min-width:0}
+.account-settings-card h2{margin:0 0 10px}
+.account-settings-card>.description{margin:0 0 24px;line-height:1.7}
+.account-settings-card .field{margin:0 0 20px}
+.account-avatar-preview{display:flex;align-items:center;justify-content:center;width:112px;height:112px;margin:8px auto 18px;border-radius:50%;background:#e2e4f6;color:var(--green);font-size:38px;overflow:hidden}
+.account-avatar-preview>img{display:block;width:100%;height:100%;object-fit:cover}
+.account-identity{display:grid;gap:6px;text-align:center;overflow-wrap:anywhere;margin-bottom:24px}
+.account-identity>strong{font-size:18px}.account-identity>span{color:var(--muted);font-size:12px}
+.account-avatar-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
+.account-field-hint{display:block;color:var(--muted);font-size:12px;margin-top:8px;line-height:1.6}
+#account-avatar-form>.account-field-hint{text-align:center;margin:16px 0 0}
+.account-form-status{min-height:1.5em;line-height:1.7;font-size:13px;overflow-wrap:anywhere;margin:16px 0 0;color:var(--green)}
+.account-form-status.error{color:#a73737}
+.account-settings-card .form-footer{margin-top:20px}
+@media(max-width:950px){.account-settings-grid{grid-template-columns:minmax(0,1fr)}}
+
+.cm-aux-dialog.personal-settings-dialog{width:min(900px,calc(100vw - 32px));max-height:90dvh}
+.personal-settings-dialog input[hidden]{display:none}
+.personal-settings-dialog #account-avatar-form,.personal-settings-dialog #account-password-form{display:block}
+.personal-settings-dialog #personal-account>.account-settings-card{margin-top:24px}
+.personal-settings-dialog .personal-settings-profile.card{border:1px solid var(--line);padding:20px}
+.personal-settings-dialog>header{position:sticky;top:0;z-index:2;background:#fff}
+.personal-settings-dialog .cm-aux-content{display:grid;gap:24px}
+.personal-settings-dialog .account-settings-grid{grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:18px}
+.personal-settings-dialog .account-settings-card{padding:20px}
+.personal-settings-profile,.personal-settings-data{min-width:0;border-top:1px solid #e5eaf0;padding-top:20px}
+.personal-settings-profile>h3,.personal-settings-data>h3{font-size:16px;margin:0 0 18px}
+.personal-settings-dialog .grid-2{grid-template-columns:1fr;gap:16px}
+.personal-settings-dialog #personal-data-heading{scroll-margin-top:90px}
+@media(max-width:700px){.cm-aux-dialog.personal-settings-dialog{width:calc(100vw - 24px);max-height:calc(100dvh - 28px)}.personal-settings-dialog .cm-aux-content{padding:16px;gap:20px}.personal-settings-dialog .account-settings-grid{grid-template-columns:minmax(0,1fr)}.personal-settings-dialog .account-settings-card{padding:16px}}

@@ -1,3 +1,4 @@
+import {accountAvatarMarkup, mountAccountSettings} from './account-settings.js';
 import {landingMarkup, mountLanding} from './landing.js?v=18';
 import {animateViewEntry, transitionView} from './view-transitions.js?v=5';
 import {webSearchSettingsView,renderWebResult,updateWebSearchProviderFields} from './web-search.js';
@@ -5,7 +6,7 @@ import {nutritionFeedbackView} from './nutrition-feedback-view.js';
 import {dailyMealAdvicePrompt} from './meal-advice-prompt.js?v=2';
 import {getDailyQuote} from './daily-quotes.js?v=1';
 import {holidayYear,holidayInfo,installHolidayYear} from './holidays.js';
-import {CommunityController, clearCommunityDrafts, clearCommunityLocalData} from './community.js?v=33';
+import {CommunityController, clearCommunityDrafts, clearCommunityLocalData} from './community.js?v=35';
 import {api, streamChat, streamMotionCoach, RecordStore, setApiUser, createId} from './store.js?v=11';
 import {renderMarkdown,renderMarkdownInto} from './chat-markdown.js?v=10';
 import {AttachmentManager, filesFromTransfer} from './chat-attachments.js?v=10';
@@ -79,17 +80,34 @@ function suspendMotionView() { motionView?.suspend(); motionRoot?.remove(); }
 function closeMotionView() { motionView?.destroy(); motionRoot?.remove(); motionView=null; motionRoot=null; motionStore=null; }
 let landingCleanup = null;
 let communityController = null;
+let accountSettingsView = null;
+function closeAccountSettings() {accountSettingsView?.destroy(); accountSettingsView=null;}
+function updateAccountProfile(profile) {
+  if(!state.user||profile?.id!==state.user.id)return;
+  const changed=state.user.avatarUrl!==(profile.avatarUrl||null);
+  state.user.avatarUrl=profile.avatarUrl||null;
+  if(state.store?.user)state.store.user.avatarUrl=state.user.avatarUrl;
+  try{localStorage.setItem('fitness:last-user',JSON.stringify(state.user));}catch{}
+  document.querySelectorAll('[data-account-avatar]').forEach(element=>{element.innerHTML=accountAvatarMarkup(state.user);});
+  accountSettingsView?.refreshAvatar(state.user);
+  if(communityController?.accountId===state.user.id){
+    communityController.ownProfile=profile;
+    if(changed)for(const view of communityController.views.values())view.loaded=false;
+    if(communityController.currentProfile?.id===profile.id)communityController.currentProfile=profile;
+  }
+}
 let navigationVersion = 0;
 let providerSettings = null;
 state.providersVersion = null;
 state.providersConflict = false;
-const personalSections = [['home','我的主页'],['profile','健康档案'],['achievements','成就墙'],['ai','AI 服务'],['review','阶段复盘'],['data','数据与同步']];
+const personalSections = [['home','我的主页'],['profile','健康档案'],['achievements','成就墙'],['ai','AI 服务']];
+const personalSectionGroup = section => ({account:'home',data:'home',review:'profile'}[section]||section);
 function personalRoute(hash=location.hash) {
   const [path,query='']=String(hash).split('?'),params=new URLSearchParams(query);
-  return {active:path==='#settings',section:personalSections.some(([id])=>id===params.get('section'))?params.get('section'):'home',tab:['collections','drafts'].includes(params.get('tab'))?params.get('tab'):'published'};
+  return {active:path==='#settings',section:personalSections.some(([id])=>id===personalSectionGroup(params.get('section')))?params.get('section'):'home',tab:['collections','drafts'].includes(params.get('tab'))?params.get('tab'):'published'};
 }
 const personalHash = section => section==='home'?'#settings':'#settings?section='+encodeURIComponent(section);
-const communityOnlyPage = () => state.page==='community'||state.page==='settings'&&state.setting==='home';
+const communityOnlyPage = () => state.page==='community'||state.page==='settings'&&personalSectionGroup(state.setting)==='home';
 function canonicalProfileHash(hash) {
   const [path,query='']=String(hash).split('?'),params=new URLSearchParams(query),parts=path.split('/');
   if(path==='#community/mine'||parts[0]==='#community'&&parts[1]==='user'&&String(parts[2])===String(state.user?.id)&&params.get('preview')!=='public'){
@@ -162,6 +180,7 @@ async function boot() {
   }
 }
 async function enter(user,offline=false) {
+  closeAccountSettings();
   if(state.user?.id!==user.id){closeMotionView();await communityController?.destroy();communityController=null;modelViewer.destroy();for(const key of Object.keys(knowledgeDrafts))delete knowledgeDrafts[key];await chatUploads.clearAll({removeUploaded:true});chatMotionVideos.clear();chatDrafts.clear();chatScroll.clear();state.conversation=null;state.chatScene='';state.files=[];state.weekCelebration=null;state.celebratedWeeks=new Set();state.achievementPage=0;state.achievementCategory='all';state.librarySelected=null;state.libraryDate=null;state.libraryEditing=null;}
   state.providersVersion=null;state.providersConflict=false;
   setApiUser(user.id);
@@ -267,6 +286,7 @@ function renderAuth() {
 }
 
 async function render() {
+ closeAccountSettings();
  const version=navigationVersion;
  if(!communityOnlyPage()&&!await readyComputed())return;
  if(version!==navigationVersion)return;
@@ -275,7 +295,7 @@ async function render() {
   if(landingCleanup){landingCleanup();landingCleanup=null;if(['#auth-entry','#auth-register'].includes(location.hash))history.replaceState(null,'',location.pathname+location.search);window.scrollTo(0,0);}
   captureChatDraft();
   const labels={chat:'AI 对话',nutrition:'今日饮食',training:'训练计划',library:'知识大全',motion:'动作评估',community:'社区',settings:'个人中心'};
-  $('#app').innerHTML=`<div class="layout${state.sidebarCollapsed?' sidebar-collapsed':''}${state.page==='community'?' community-active':''}"><aside class="sidebar" id="sidebar"><div class="sidebar-header"><button type="button" class="sidebar-toggle icon-button" data-action="toggle-sidebar" aria-controls="sidebar" aria-expanded="${!state.sidebarCollapsed}" aria-label="${state.sidebarCollapsed?'展开侧边栏':'收起侧边栏'}" title="${state.sidebarCollapsed?'展开侧边栏':'收起侧边栏'}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM9 4v16m6-12-4 4 4 4"/></svg><span class="toggle-brand brand-symbol" aria-hidden="true"><img src="/assets/logo.svg" alt="" width="39" height="43"></span></button><button class="mobile-close icon-button" data-action="menu" aria-label="关闭导航">${icon('close')}</button><a class="brand" aria-label="循序 · AI 对话" title="循序 · AI 对话" href="#chat" data-action="nav" data-page="chat"><span class="brand-symbol" aria-hidden="true"><img src="/assets/logo.svg" alt="" width="39" height="43"></span><div><span class="brand-name">循序</span><small>AI FITNESS COMPANION</small></div></a></div><nav class="nav" aria-label="主导航">${[['chat','chat','AI 对话'],['nutrition','food','今日饮食'],['training','dumbbell','训练计划'],['library','grid','知识大全'],['motion','body','动作评估'],['community','community','社区'],['settings','settings','个人中心']].map(([id,i,label])=>`<button data-action="nav" data-page="${id}" aria-label="${label}" title="${label}" class="${state.page===id?'active':''}" ${state.page===id?'aria-current="page"':''}>${icon(i)}<span>${label}</span>${state.page===id?'<i class="nav-dot"></i>':''}</button>`).join('')}</nav><section class="history"><div class="section-label">最近对话<button class="link-button" data-action="new-chat" aria-label="新建对话">＋</button></div><div id="history-list"></div></section><div class="side-note"><span class="side-note-kicker">今日寄语 ${icon("spark")}</span><strong data-daily-quote-title></strong><span data-daily-quote-line="0"></span><br><span data-daily-quote-line="1"></span><div class="side-note-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div><div class="account"><span class="avatar">${esc(state.user.name?.slice(0,1)||'循')}</span><div class="account-info"><strong>${esc(state.user.name||'我的空间')}</strong><small>${profile()?goalLabel(profile().goal)+'进行中':'开启健康生活'}</small></div><button class="icon-button" data-action="logout" aria-label="退出登录">${icon('logout')}</button></div></aside><main class="main"><header class="topbar"><div class="row"><button class="icon-button mobile-menu" data-action="menu" aria-label="打开导航">${icon('menu')}</button><div class="breadcrumb">我的健康空间<span>/</span><strong>${labels[state.page]}</strong></div></div><div class="top-right"><span class="date-label muted">${dateLabel(today())}</span><button id="sync-status" class="status" data-action="sync">已同步</button></div></header><div id="page" class="content"></div></main></div>`;
+  $('#app').innerHTML=`<div class="layout${state.sidebarCollapsed?' sidebar-collapsed':''}${state.page==='community'?' community-active':''}"><aside class="sidebar" id="sidebar"><div class="sidebar-header"><button type="button" class="sidebar-toggle icon-button" data-action="toggle-sidebar" aria-controls="sidebar" aria-expanded="${!state.sidebarCollapsed}" aria-label="${state.sidebarCollapsed?'展开侧边栏':'收起侧边栏'}" title="${state.sidebarCollapsed?'展开侧边栏':'收起侧边栏'}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM9 4v16m6-12-4 4 4 4"/></svg><span class="toggle-brand brand-symbol" aria-hidden="true"><img src="/assets/logo.svg" alt="" width="39" height="43"></span></button><button class="mobile-close icon-button" data-action="menu" aria-label="关闭导航">${icon('close')}</button><a class="brand" aria-label="循序 · AI 对话" title="循序 · AI 对话" href="#chat" data-action="nav" data-page="chat"><span class="brand-symbol" aria-hidden="true"><img src="/assets/logo.svg" alt="" width="39" height="43"></span><div><span class="brand-name">循序</span><small>AI FITNESS COMPANION</small></div></a></div><nav class="nav" aria-label="主导航">${[['chat','chat','AI 对话'],['nutrition','food','今日饮食'],['training','dumbbell','训练计划'],['library','grid','知识大全'],['motion','body','动作评估'],['community','community','社区'],['settings','settings','个人中心']].map(([id,i,label])=>`<button data-action="nav" data-page="${id}" aria-label="${label}" title="${label}" class="${state.page===id?'active':''}" ${state.page===id?'aria-current="page"':''}>${icon(i)}<span>${label}</span>${state.page===id?'<i class="nav-dot"></i>':''}</button>`).join('')}</nav><section class="history"><div class="section-label">最近对话<button class="link-button" data-action="new-chat" aria-label="新建对话">＋</button></div><div id="history-list"></div></section><div class="side-note"><span class="side-note-kicker">今日寄语 ${icon("spark")}</span><strong data-daily-quote-title></strong><span data-daily-quote-line="0"></span><br><span data-daily-quote-line="1"></span><div class="side-note-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div><div class="account"><a class="avatar account-settings-link" href="#settings?section=account" data-action="account-settings" data-account-avatar aria-label="修改头像和账号密码" title="账号与安全">${accountAvatarMarkup(state.user)}</a><a class="account-info account-settings-link" href="#settings?section=account" data-action="account-settings" aria-label="账号与安全"><strong>${esc(state.user.name||'我的空间')}</strong><small>${profile()?goalLabel(profile().goal)+'进行中':'开启健康生活'}</small></a><button class="icon-button" data-action="logout" aria-label="退出登录">${icon('logout')}</button></div></aside><main class="main"><header class="topbar"><div class="row"><button class="icon-button mobile-menu" data-action="menu" aria-label="打开导航">${icon('menu')}</button><div class="breadcrumb">我的健康空间<span>/</span><strong>${labels[state.page]}</strong></div></div><div class="top-right"><span class="date-label muted">${dateLabel(today())}</span><button id="sync-status" class="status" data-action="sync">已同步</button></div></header><div id="page" class="content"></div></main></div>`;
   updateSidebarQuote(); renderSidebarHistory(); updateSync(); await renderPage();
 }
 function updateSidebarQuote() {
@@ -304,7 +324,7 @@ async function renderPage({transition=true}={}) {
  if(state.page!=='motion')suspendMotionView();
   if(state.page==='community'){
     if(!profile()){$('#page').innerHTML='<div class="empty" role="status">完成基本资料后，即可进入循序社区。</div>';return;}
-    communityController ||= new CommunityController({getUser:()=>state.user,api,toast,navigate:communityNavigate});
+    communityController ||= new CommunityController({getUser:()=>state.user,api,toast,navigate:communityNavigate,onProfileChange:updateAccountProfile,onProfileSettings:mountPersonalSettings});
     return communityController.mount($('#page')).catch(error=>toast(error.message,true));
   }
  if(!communityOnlyPage())ensureRecurringSchedule().catch(error=>toast(error.message,true));
@@ -575,7 +595,7 @@ async function sendChat(text,retryId=null) {
    if(state.page==='chat'&&state.conversation===id){renderChat();followChat();}
    await store.sync();controller.signal.throwIfAborted();
    const aiRelevant=record=>record&&(['plan','calendar-task','schedule','training-cycle','calendar-settings','meal','phase','nutrition-feedback-settings'].includes(record.kind)||['active-plan','profile','preferences'].includes(record.id));
-   if([...store.pending.values()].some(aiRelevant)||store.conflicts.some(c=>aiRelevant(store.records.get(c.id))||aiRelevant(c.server)||aiRelevant(c.local)))throw new Error('个人资料、日程、训练计划或饮食还有待同步或冲突的本机修改。请先在「个人中心 → 数据与同步」处理后重试。');
+   if([...store.pending.values()].some(aiRelevant)||store.conflicts.some(c=>aiRelevant(store.records.get(c.id))||aiRelevant(c.server)||aiRelevant(c.local)))throw new Error('个人资料、日程、训练计划或饮食还有待同步或冲突的本机修改。请先在「个人中心 → 我的主页 → 设置」处理后重试。');
    if(store.status==='offline')throw new Error('当前离线，消息已保存在本机。联网后可以重试。');
    const response=await streamChat({requestId,conversationId:id,messages:outgoing.filter(m=>!m.error&&!m.stopped).slice(-80).map(({id,role,content,attachments,motionVideos,reasoningContent,toolResults,mealIntent})=>({id,role,content:mealChatInstruction(mealIntent)+(mealIntent?mealDishInstruction+'\n'+mealCategoryInstruction+'\n':'')+content+(role==='assistant'&&toolResults?.some(r=>r.name==='set_chat_visuals'&&r.ok)?'\n[本条回答的3D展示] '+JSON.stringify(chatVisuals({toolResults}).map(({type,id})=>({type,id}))):'')+(role==='assistant'&&toolResults?.some(r=>r.name==='assess_motion_video'&&r.ok)?'\n[已完成的动作评估] '+JSON.stringify(toolResults.filter(r=>r.name==='assess_motion_video'&&r.ok).map(compactChatMotionResult)):'')+(role==='assistant'&&toolResults?.some(r=>!r.readOnly)?'\n[已执行操作回执]\n'+toolResults.filter(r=>!r.readOnly).map(r=>r.message||r.name).join('\n'):''),attachments,motionVideos,reasoningContent})),context:{date:state.date,localToday:today(),timezoneOffset:new Date().getTimezoneOffset()}}, {
      userId:user.id,signal:controller.signal,onEvent:async(type,data)=>{
@@ -1505,18 +1525,49 @@ function showExercise(id) {
  modelViewer.open({type:'exercise',id,title:x.name,url:modelUrl('exercise',id),detailsHtml:`<details class="model-guidance"><summary>动作要领与来源</summary><div class="model-details"><div class="row wrap"><span class="badge">${esc(x.muscle)}</span><span class="badge neutral">${esc(x.equipment)}</span></div><p class="description">${esc(x.description)}</p><ol>${x.cues.map(c=>`<li>${esc(c)}</li>`).join('')}</ol><small>${esc(x.source)}</small></div></details>`});
 }
 
-function renderSettings() {
- if(!personalSections.some(([id])=>id===state.setting))state.setting='home';
+async function renderSettings() {
+ closeAccountSettings();
+ if(!personalSections.some(([id])=>id===personalSectionGroup(state.setting)))state.setting='home';
+ const section=personalSectionGroup(state.setting);
  $('#page').classList.add('personal-center-content');
  $('.layout').classList.add('personal-center-active');
- const actions=state.setting==='home'?`<div class="personal-head-actions"><a class="button personal-preview" href="#community/user/${encodeURIComponent(state.user.id)}?preview=public">他人视角 ${icon('arrow')}</a><a class="button primary" href="#community/publish">${icon('plus')} 发布笔记</a></div>`:'';
- $('#page').innerHTML=title('个人中心','管理你的主页、健康档案与偏好。',actions)+`<nav class="settings-nav" aria-label="个人中心栏目">${personalSections.map(([id,label])=>`<button data-action="settings-tab" data-tab="${id}" class="${state.setting===id?'active':''}" ${state.setting===id?'aria-current="page"':''}>${label}</button>`).join('')}</nav><div id="settings-content"></div>`;
- if(state.setting==='home'){
+ const actions=section==='home'?`<div class="personal-head-actions"><a class="button personal-preview" href="#community/user/${encodeURIComponent(state.user.id)}?preview=public">他人视角 ${icon('arrow')}</a><a class="button primary" href="#community/publish">${icon('plus')} 发布笔记</a></div>`:'';
+ $('#page').innerHTML=title('个人中心','管理你的主页、健康档案与偏好。',actions)+`<nav class="settings-nav" aria-label="个人中心栏目">${personalSections.map(([id,label])=>`<button data-action="settings-tab" data-tab="${id}" class="${section===id?'active':''}" ${section===id?'aria-current="page"':''}>${label}</button>`).join('')}</nav><div id="settings-content" data-setting="${state.setting}"></div>`;
+ if(section==='home'){
    $('#settings-content').innerHTML='<div id="personal-community"></div>';
-   communityController ||= new CommunityController({getUser:()=>state.user,api,toast,navigate:communityNavigate});
-   return communityController.mountPersonal($('#personal-community'),personalRoute().active?location.hash:'#settings').catch(error=>toast(error.message,true));
- }else return ({profile:renderProfile,achievements:renderAchievements,ai:renderAISettings,review:renderReview,data:renderData}[state.setting])();
+   communityController ||= new CommunityController({getUser:()=>state.user,api,toast,navigate:communityNavigate,onProfileChange:updateAccountProfile,onProfileSettings:mountPersonalSettings});
+   const container=$('#personal-community');
+   await communityController.mountPersonal(container,personalRoute().active?location.hash:'#settings').catch(error=>toast(error.message,true));
+   if(container.isConnected&&['account','data'].includes(state.setting)){
+     const dialog=await communityController.editProfile();
+     if(state.setting==='data')dialog?.querySelector('#personal-data-heading')?.scrollIntoView({block:'start'});
+   }
+ }else return ({profile:renderProfile,achievements:renderAchievements,ai:renderAISettings}[section])();
 }
+function mountPersonalSettings(dialog) {
+ closeAccountSettings();
+ const user=state.user,store=state.store;
+ dialog.classList.add('personal-settings-dialog');
+ const form=dialog.querySelector('[data-cm-form=profile]');
+ form.querySelector('.cm-profile-edit-avatar')?.remove();
+ form.classList.add('personal-settings-profile');
+ form.insertAdjacentHTML('afterbegin','<h3>个人资料</h3>');
+ form.insertAdjacentHTML('beforebegin','<div id="personal-account"></div>');
+ form.insertAdjacentHTML('afterend','<section class="personal-settings-data" aria-labelledby="personal-data-heading"><h3 id="personal-data-heading">数据管理</h3><div id="personal-data"></div></section>');
+ const view=accountSettingsView=mountAccountSettings($('#personal-account'),{user,api,isCurrent:()=>state.user===user&&state.store===store,onProfileChange:profile=>{
+   updateAccountProfile(profile);
+   const draft=communityController?.profileDraft;
+   if(draft?.dialog===dialog){draft.avatarMediaId=profile.avatarMediaId;draft.avatarUrl=profile.avatarUrl;}
+   communityController?.refreshProfileHeading();
+ }});
+ const grid=dialog.querySelector('.account-settings-grid'),password=dialog.querySelector('[aria-labelledby=account-password-heading]');
+ grid.after(password);
+ grid.append(form);
+ form.classList.add('card');
+ renderData();
+ return ()=>{view.destroy();if(accountSettingsView===view)accountSettingsView=null;};
+}
+
 async function renderAchievements() {
  if(!await readyComputed())return;
  const all=computeRecords(),pageSize=matchMedia('(max-width:700px)').matches?2:4;
@@ -1539,7 +1590,10 @@ async function showAchievement(id) {
 async function renderProfile() {
  if(!await readyComputed())return;
  const p=profile(),history=records('phase');
- $('#settings-content').innerHTML=`<div class="grid-2"><div class="card"><div class="profile-head"><span class="avatar">${esc(state.user.name?.slice(0,1))}</span><div><h2>${esc(state.user.name)}</h2><small>${esc(state.user.email)}</small></div></div><div class="stats" style="grid-template-columns:1fr 1fr;margin-bottom:20px"><div class="stat"><small>当前体重</small><strong>${p?.weight||'—'}<em>kg</em></strong></div><div class="stat"><small>当前目标</small><strong style="font-size:23px">${goalLabel(p?.goal)||'待设置'}</strong></div></div><div class="row spread"><small>年龄 / 性别</small><span>${p?.age||'—'} 岁 · ${p?.sex==='female'?'女':'男'}</span></div><div class="divider"></div><div class="row spread"><small>身高</small><span>${p?.height||'—'} cm</span></div><div class="divider"></div>${button('更新阶段资料','profile','','primary')}<p class="description" style="font-size:11px;margin:18px 0 0">每次更新会保留带日期的历史，并重新估算营养建议。</p></div><div class="card"><div class="card-head"><h2>阶段记录</h2><span class="badge neutral">${history.length} 条</span></div>${history.length?`<table class="history-table"><thead><tr><th>日期</th><th>体重</th><th>目标</th><th></th></tr></thead><tbody>${history.map(r=>`<tr><td>${esc(r.data.date)}</td><td>${r.data.weight} kg</td><td>${goalLabel(r.data.goal)}</td><td><button class="link-button" data-action="delete-phase" data-id="${r.id}">删除</button></td></tr>`).join('')}</tbody></table>`:empty('更新资料后，会在这里留下一条记录。')}</div></div>`;
+ $('#settings-content').innerHTML=`<div class="grid-2"><div class="card"><div class="profile-head"><span class="avatar" data-account-avatar>${accountAvatarMarkup(state.user)}</span><div><h2>${esc(state.user.name)}</h2><small>${esc(state.user.email)}</small></div></div><div class="stats" style="grid-template-columns:1fr 1fr;margin-bottom:20px"><div class="stat"><small>当前体重</small><strong>${p?.weight||'—'}<em>kg</em></strong></div><div class="stat"><small>当前目标</small><strong style="font-size:23px">${goalLabel(p?.goal)||'待设置'}</strong></div></div><div class="row spread"><small>年龄 / 性别</small><span>${p?.age||'—'} 岁 · ${p?.sex==='female'?'女':'男'}</span></div><div class="divider"></div><div class="row spread"><small>身高</small><span>${p?.height||'—'} cm</span></div><div class="divider"></div>${button('更新阶段资料','profile','','primary')}<p class="description" style="font-size:11px;margin:18px 0 0">每次更新会保留带日期的历史，并重新估算营养建议。</p></div><div class="card"><div class="card-head"><h2>阶段记录</h2><span class="badge neutral">${history.length} 条</span></div>${history.length?`<table class="history-table"><thead><tr><th>日期</th><th>体重</th><th>目标</th><th></th></tr></thead><tbody>${history.map(r=>`<tr><td>${esc(r.data.date)}</td><td>${r.data.weight} kg</td><td>${goalLabel(r.data.goal)}</td><td><button class="link-button" data-action="delete-phase" data-id="${r.id}">删除</button></td></tr>`).join('')}</tbody></table>`:empty('更新资料后，会在这里留下一条记录。')}</div></div>`;
+ const review=document.createElement('section');review.id='personal-review';review.className='personal-review';review.setAttribute('aria-label','阶段复盘');
+ $('#settings-content').append(review);
+ await renderReview(review);
 }
 function showProfile(first=false) {
  const p=profile()||{age:28,sex:'male',height:175,weight:70,goal:'maintain'};
@@ -1615,16 +1669,17 @@ async function saveProvider() {
  if(!saved||state.providerDraft!==d||!$('#provider-form'))return;
  $('#provider-form').reset();d.apiKey='';state.providerDraft=null;closeModal();renderAISettings();toast('供应商与模型已保存');
 }
-async function renderReview() {
+async function renderReview(container=$('#personal-review')) {
  if(!await readyComputed())return;
+ if(!container?.isConnected)return;
  const phases=records('phase').map(r=>r.data).sort((a,b)=>a.date.localeCompare(b.date));const first=phases[0],last=phases.at(-1),delta=first&&last?Number(computed.phaseWeightChange.toFixed(1)):0;
  const done=allCalendarTasks().filter(r=>r.data.taskType==='training'&&r.data.completed),meals=records('meal').filter(r=>r.data.confirmed),dates=new Set(meals.map(r=>r.data.date));
  const mean=computed.meanKcal;
- $('#settings-content').innerHTML=`<div class="stats"><div class="stat"><small>已记录体重变化</small><strong>${delta>0?'+':''}${delta}<em>kg</em></strong><p>${first?`${first.date} 至 ${last.date}`:'等待至少两次体重记录'}</p></div><div class="stat"><small>完成训练</small><strong>${done.length}<em>次</em></strong><p>实际完成记录</p></div><div class="stat"><small>饮食记录天数</small><strong>${dates.size}<em>天</em></strong><p>${meals.length} 餐已确认</p></div><div class="stat"><small>有记录日平均摄入</small><strong>${numeric(mean)}<em>kcal</em></strong><p>缺少餐次会低估全天摄入</p></div></div><div class="grid-2"><section class="card"><h2>体重趋势</h2>${phases.length>1?`<div class="trend" role="img" aria-label="体重历史：${esc(phases.map(p=>p.date+' '+p.weight+'kg').join('，'))}">${phases.slice(-12).map(p=>`<div class="trend-column"><span>${p.weight}</span><i style="height:${Math.max(15,(p.weight-Math.min(...phases.map(x=>x.weight))+1)/(Math.max(...phases.map(x=>x.weight))-Math.min(...phases.map(x=>x.weight))+2)*75)}px"></i><span>${p.date.slice(5)}</span></div>`).join('')}</div>`:empty('连续记录几次体重，就能看到趋势。')}<p class="review-summary">${phases.length>1?`这段记录中，体重${delta>0?'上升':delta<0?'下降':'保持'} ${Math.abs(delta)} kg。`:'目前的体重记录还不足以判断趋势。'}体重会受饮水、食物和测量时间影响，建议在相近条件下观察多次记录。</p>${button('更新阶段参数','profile','','small')}</section><section class="card"><h2>把记录放在一起看</h2><p class="review-summary">你已记录 ${done.length} 次训练和 ${meals.length} 餐饮食。${dates.size<7?'继续积累完整记录，有助于判断计划是否适合当前生活节奏。':'复盘时可以结合体重变化、训练表现与饥饿感调整阶段目标。'}</p>${button(icon('spark')+' 请 AI 结合记录复盘','ai-review','','primary')}<p class="description" style="font-size:11px;margin-top:17px">更新阶段参数后会重新计算营养建议；训练计划须主动修改并再次确认。</p></section></div>`;
+ container.innerHTML=`<h2 class="personal-section-heading">阶段复盘</h2><div class="stats"><div class="stat"><small>已记录体重变化</small><strong>${delta>0?'+':''}${delta}<em>kg</em></strong><p>${first?`${first.date} 至 ${last.date}`:'等待至少两次体重记录'}</p></div><div class="stat"><small>完成训练</small><strong>${done.length}<em>次</em></strong><p>实际完成记录</p></div><div class="stat"><small>饮食记录天数</small><strong>${dates.size}<em>天</em></strong><p>${meals.length} 餐已确认</p></div><div class="stat"><small>有记录日平均摄入</small><strong>${numeric(mean)}<em>kcal</em></strong><p>缺少餐次会低估全天摄入</p></div></div><div class="grid-2"><section class="card"><h2>体重趋势</h2>${phases.length>1?`<div class="trend" role="img" aria-label="体重历史：${esc(phases.map(p=>p.date+' '+p.weight+'kg').join('，'))}">${phases.slice(-12).map(p=>`<div class="trend-column"><span>${p.weight}</span><i style="height:${Math.max(15,(p.weight-Math.min(...phases.map(x=>x.weight))+1)/(Math.max(...phases.map(x=>x.weight))-Math.min(...phases.map(x=>x.weight))+2)*75)}px"></i><span>${p.date.slice(5)}</span></div>`).join('')}</div>`:empty('连续记录几次体重，就能看到趋势。')}<p class="review-summary">${phases.length>1?`这段记录中，体重${delta>0?'上升':delta<0?'下降':'保持'} ${Math.abs(delta)} kg。`:'目前的体重记录还不足以判断趋势。'}体重会受饮水、食物和测量时间影响，建议在相近条件下观察多次记录。</p>${button('更新阶段参数','profile','','small')}</section><section class="card"><h2>把记录放在一起看</h2><p class="review-summary">你已记录 ${done.length} 次训练和 ${meals.length} 餐饮食。${dates.size<7?'继续积累完整记录，有助于判断计划是否适合当前生活节奏。':'复盘时可以结合体重变化、训练表现与饥饿感调整阶段目标。'}</p>${button(icon('spark')+' 请 AI 结合记录复盘','ai-review','','primary')}<p class="description" style="font-size:11px;margin-top:17px">更新阶段参数后会重新计算营养建议；训练计划须主动修改并再次确认。</p></section></div>`;
 }
 function renderData() {
  const s=state.store;
- $('#settings-content').innerHTML=`<div class="grid-2"><section class="card"><h2>数据与同步</h2><p class="description" style="font-size:12px">同一服务地址下登录同一账号，即可同步电脑与手机的资料、会话、计划、餐食和图片。离线更改保存在当前设备，联网后继续同步。</p><div class="row spread"><small>本地记录</small><span>${[...s.records.values()].filter(r=>!r.deleted).length} 条</span></div><div class="divider"></div><div class="row spread"><small>等待同步</small><span>${s.pending.size} 条</span></div><div class="form-footer">${button('立即同步','sync','','primary')}${button(icon('download')+' 导出我的数据','export')}</div>${s.conflicts.length?`<div class="divider"></div><h3>需要选择保留的版本</h3>${s.conflicts.map(c=>`<div class="notice" style="margin:12px 0"><strong>${esc(s.records.get(c.id)?.kind)} · ${esc(c.id)}</strong><details><summary>查看双方内容</summary><pre style="white-space:pre-wrap;max-height:200px;overflow:auto">本机：${esc(JSON.stringify(s.get(c.id),null,2))}\n服务端：${esc(JSON.stringify(c.server?.data,null,2))}</pre></details><div class="row wrap" style="margin-top:10px">${button('保留本机更改','resolve-conflict',`data-id="${esc(c.id)}" data-local="true"`,'small')}${button('使用服务端版本','resolve-conflict',`data-id="${esc(c.id)}" data-local="false"`,'small')}</div></div>`).join('')}`:''}</section><section class="card"><h2>管理自己的记录</h2><p class="description" style="font-size:12px">会话可在左侧逐条删除；餐食可在编辑页删除；阶段历史可在资料页管理。</p><div class="notice">个人导出包含档案、历史、会话、计划、餐食、图片与设置，不含 API 密钥。导出前会尝试同步本机修改。</div><div class="divider"></div><h3>删除账号及全部数据</h3><p class="description" style="font-size:12px">将删除当前账号的服务端记录、图片、模型密钥和当前设备缓存，其他已登录设备联网后会退出账号。</p>${button('删除全部个人数据','delete-account','','danger')}</section></div>`;
+ $('#personal-data').innerHTML=`<div class="grid-2"><section class="card"><h2>数据与同步</h2><p class="description" style="font-size:12px">同一服务地址下登录同一账号，即可同步电脑与手机的资料、会话、计划、餐食和图片。离线更改保存在当前设备，联网后继续同步。</p><div class="row spread"><small>本地记录</small><span>${[...s.records.values()].filter(r=>!r.deleted).length} 条</span></div><div class="divider"></div><div class="row spread"><small>等待同步</small><span>${s.pending.size} 条</span></div><div class="form-footer">${button('立即同步','sync','','primary')}${button(icon('download')+' 导出我的数据','export')}</div>${s.conflicts.length?`<div class="divider"></div><h3>需要选择保留的版本</h3>${s.conflicts.map(c=>`<div class="notice" style="margin:12px 0"><strong>${esc(s.records.get(c.id)?.kind)} · ${esc(c.id)}</strong><details><summary>查看双方内容</summary><pre style="white-space:pre-wrap;max-height:200px;overflow:auto">本机：${esc(JSON.stringify(s.get(c.id),null,2))}\n服务端：${esc(JSON.stringify(c.server?.data,null,2))}</pre></details><div class="row wrap" style="margin-top:10px">${button('保留本机更改','resolve-conflict',`data-id="${esc(c.id)}" data-local="true"`,'small')}${button('使用服务端版本','resolve-conflict',`data-id="${esc(c.id)}" data-local="false"`,'small')}</div></div>`).join('')}`:''}</section><section class="card"><h2>管理自己的记录</h2><p class="description" style="font-size:12px">会话可在左侧逐条删除；餐食可在编辑页删除；阶段历史可在资料页管理。</p><div class="notice">个人导出包含档案、历史、会话、计划、餐食、图片与设置，不含 API 密钥。导出前会尝试同步本机修改。</div><div class="divider"></div><h3>删除账号及全部数据</h3><p class="description" style="font-size:12px">将删除当前账号的服务端记录、图片、模型密钥和当前设备缓存，其他已登录设备联网后会退出账号。</p>${button('删除全部个人数据','delete-account','','danger')}</section></div>`;
 }
 
 function recipeTool() {
@@ -1715,7 +1770,7 @@ async function navigate(page,{fromHash=false}={}) {
     await communityController.handleRoute(location.hash);
     return;
   }
-  if(page==='settings'&&state.page==='settings'&&state.setting==='home'&&communityController?.isMounted($('#personal-community'))){
+  if(page==='settings'&&state.page==='settings'&&state.setting==='home'&&$('#settings-content')?.dataset.setting==='home'&&communityController?.isMounted($('#personal-community'))){
     $('#sidebar')?.classList.remove('open');
     await communityController.handlePersonalRoute(location.hash);
     return;
@@ -1726,7 +1781,8 @@ async function navigate(page,{fromHash=false}={}) {
   if(page==='settings'&&state.setting==='ai')await loadProviders();
   if(version!==navigationVersion)return;
   await render();if(version!==navigationVersion)return;
-  window.scrollTo(0,0);return true;
+  if(page==='settings'&&state.setting==='review')$('#personal-review')?.scrollIntoView({block:'start'});
+  else window.scrollTo(0,0);return true;
 }
 window.addEventListener('hashchange',()=>{
   if(!state.user){rememberCommunityReturn();return;}
@@ -1764,6 +1820,7 @@ document.addEventListener('click',async event=>{
    else {$('#auth-entry').scrollIntoView({behavior:'instant'});$('#landing-auth-heading').focus({preventScroll:true});}
    break;
  }
+ case 'account-settings':state.setting='account';await navigate('settings');break;
  case 'nav':if(target.dataset.page==='settings')state.setting='home';await navigate(target.dataset.page);break;
  case 'motion-open':modelViewer.close();closeModal();await navigate('motion');break;
  case 'chat-motion-detail':{
@@ -1908,7 +1965,7 @@ document.addEventListener('click',async event=>{
  case 'recipe':recipeTool();break;
  case 'recipe-ai':{if(!state.recipe)return;target.disabled=true;try{const response=await api('/ai',{method:'POST',body:{task:'planning',messages:[{role:'user',content:'请结合我的训练时间、偏好与忌口，对以下食谱草案给出可操作的调整说明和单餐替换，避免忽略任何饮食限制。不要自动记账。'+JSON.stringify({recipe:state.recipe,preferences:state.store.get('preferences')})}],context:aiContext()}});$('#recipe-result').insertAdjacentHTML('beforeend',`<div class="notice" style="margin-top:18px;white-space:pre-wrap">${esc(response.content)}</div>`);}finally{target.disabled=false;}break;}
  case 'food-swap':foodSwap();break;
- case 'sync':if(state.store.status==='expired'){await logout();break;}await state.store.sync();if(state.store.conflicts.length){state.setting='data';await navigate('settings');}else{renderPage({transition:false});toast('同步完成');}break;
+ case 'sync':if(state.store.status==='expired'){await logout();break;}await state.store.sync();if($('#personal-data')){renderData();toast(state.store.conflicts.length?'请选择需要保留的数据版本':'同步完成');}else if(state.store.conflicts.length){state.setting='data';await navigate('settings');}else{renderPage({transition:false});toast('同步完成');}break;
  case 'resolve-conflict':await state.store.resolve(id,target.dataset.local==='true');renderData();break;
  case 'export':target.disabled=true;try{await exportData();}finally{target.disabled=false;}break;
  case 'delete-account':modal('删除全部个人数据',`<div class="error-box">此操作会删除账号与全部记录，无法恢复。可先导出个人数据。</div><form id="delete-account-form" style="margin-top:20px"><div class="field"><label for="delete-password">输入当前密码确认</label><input id="delete-password" name="password" type="password" autocomplete="current-password" required></div><div class="form-footer">${button('取消','close-modal')}<button class="button danger">删除账号及全部数据</button></div></form>`);break;
@@ -2023,6 +2080,7 @@ document.addEventListener('input',event=>{
  if(event.target.id==='exercise-search'){const start=event.target.selectionStart;state.filter=event.target.value;renderLibrary();$('#exercise-search').focus();$('#exercise-search').setSelectionRange(start,start);}
 });
 async function deleteAccount(password) {
+  closeAccountSettings();
   const user=state.user,store=state.store,community=communityController;if(!user||!store)return;
   const current=()=>state.user===user&&state.store===store;
   await stopChat();if(!current())return;
@@ -2044,6 +2102,7 @@ async function deleteAccount(password) {
   chatDrafts.clear();chatScroll.clear();closeModal();renderAuth();toast('账号、个人记录与社区数据已删除');
 }
 async function logout() {
+  closeAccountSettings();
   const user=state.user,store=state.store,community=communityController;if(!user)return;
   const current=()=>state.user===user&&state.store===store;
   closeMotionView();

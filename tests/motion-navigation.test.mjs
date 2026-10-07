@@ -35,7 +35,7 @@ function setup(){
   const noop=()=>{};
   const context=createContext({state,navigationVersion:0,transitionView,document:{},$:(selector)=>selector==='#app'?app:selector==='#page'?page:null,
     communityOnlyPage:()=>false,readyComputed:async()=>true,setWorkspaceTheme:noop,captureChatDraft:noop,
-    icon:()=>'',esc:String,profile:()=>null,dateLabel:()=>'',today:()=>'',updateSidebarQuote:noop,renderSidebarHistory:noop,updateSync:noop,
+    closeAccountSettings:noop,accountAvatarMarkup:()=>'',icon:()=>'',esc:String,profile:()=>null,dateLabel:()=>'',today:()=>'',updateSidebarQuote:noop,renderSidebarHistory:noop,updateSync:noop,
     ensureRecurringSchedule:async()=>{},toast:noop,renderChat:()=>{page.innerHTML='chat';},renderNutrition:noop,renderTraining:noop,renderLibrary:noop,renderSettings:()=>{page.innerHTML='settings';},
     showExercise:noop,validateMotionAssessmentSize:noop,uid:()=>String(++requestCount),enabledModels:provider=>provider.models,currentModel:()=>state.model,
     streamMotionCoach:async()=>({ok:true}),navigate:async target=>{state.page=target;await context.render();return true;},
